@@ -42,7 +42,6 @@ PRESET_MESSAGES: dict[str, str] = {
 
 MODELOS_DISPONIBLES: list[str] = [
     "gemini-3.8-flash",
-    "gemini-2.5-flash",
 ]
 
 PROMPT_SISTEMA_OPERATIVO: str = (
