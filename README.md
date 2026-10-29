@@ -14,7 +14,7 @@
 ---
 
 ## 📋 Estado del Proyecto: Semana 3 (Integración de la IA)
-La aplicación cuenta con la integración completa de la API oficial de **Google Gemini (`gemini-2.5-flash`)** mediante el SDK `google-genai`:
+La aplicación cuenta con la integración completa de la API oficial de **Google Gemini (`gemini-3.8-flash`)** mediante el SDK `google-genai`:
 - **Inferencia en tiempo real:** Clasificación de urgencia y categoría con salidas estructuradas en JSON nativo (`response_mime_type="application/json"`).
 - **Manejo resiliente de errores:** Detección y tratamiento controlado de saturación de cuota (`ResourceExhausted` / 429), fallos de red y validación de formatos.
 - **Motor con fallback defensivo:** Si no se detecta la clave de API, el sistema mantiene el modo interactivo de simulación para garantizar que la app nunca falle ante un usuario o evaluador.

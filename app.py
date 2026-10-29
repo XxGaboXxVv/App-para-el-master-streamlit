@@ -40,6 +40,11 @@ PRESET_MESSAGES: dict[str, str] = {
     ),
 }
 
+MODELOS_DISPONIBLES: list[str] = [
+    "gemini-3.8-flash",
+    "gemini-2.5-flash",
+]
+
 PROMPT_SISTEMA_OPERATIVO: str = (
     "Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.\n"
     "Tu función es analizar mensajes reales de clientes recibidos por WhatsApp para clasificar su urgencia, "
@@ -104,13 +109,25 @@ def ejecutar_clasificacion_gemini(mensaje_texto: str, clave_api: str) -> Resulta
         temperature=0.1,
     )
 
-    respuesta = cliente_genai.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
-        config=configuracion,
-    )
+    ultimo_error: Optional[Exception] = None
+    respuesta = None
 
-    if not respuesta.text:
+    for nombre_modelo in MODELOS_DISPONIBLES:
+        try:
+            respuesta = cliente_genai.models.generate_content(
+                model=nombre_modelo,
+                contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
+                config=configuracion,
+            )
+            if respuesta and respuesta.text:
+                break
+        except Exception as error_intento:
+            ultimo_error = error_intento
+            continue
+
+    if not respuesta or not respuesta.text:
+        if ultimo_error:
+            raise ultimo_error
         raise ValueError("La API de Gemini devolvió una respuesta vacía.")
 
     datos_json: dict[str, str] = json.loads(respuesta.text)
@@ -155,7 +172,7 @@ def renderizar_barra_lateral() -> None:
         st.subheader("📌 Acerca del Sistema")
         st.markdown(
             "Módulo de triaje y respuesta inmediata para talleres de reparación de celulares. "
-            "Procesamiento impulsado exclusivamente por **Google Gemini 2.5 Flash**."
+            "Procesamiento impulsado exclusivamente por **Google Gemini 3.8 Flash**."
         )
 
 def main() -> None:
@@ -211,7 +228,7 @@ def main() -> None:
             return
 
         try:
-            with st.spinner("🤖 Analizando mensaje con Google Gemini 2.5 Flash..."):
+            with st.spinner("🤖 Analizando mensaje con Google Gemini 3.8 Flash..."):
                 resultado = ejecutar_clasificacion_gemini(texto_a_evaluar, clave_api)
         except APIError as error_api:
             detalle = str(error_api)

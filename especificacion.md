@@ -78,7 +78,7 @@ Estructura de datos mostrada en pantalla:
 
 ## 5. Prompts del Sistema Reutilizables (Para Semana 3)
 
-### System Prompt Base para Gemini 2.5 Flash
+### System Prompt Base para Gemini 3.8 Flash
 ```text
 Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.
 Tu trabajo es analizar el mensaje crudo enviado por un cliente por WhatsApp y generar una clasificación operativa estructurada.
@@ -113,13 +113,13 @@ Reglas obligatorias:
 2. **Opción B · Sistema RAG (Retrieval-Augmented Generation):**
    - *Rol:* Búsqueda semántica contra manuales de servicio o lista estática de precios.
    - *Desventajas:* Introduce una base vectorial (Chroma/FAISS) innecesaria para un problema centrado en interpretar mensajes informales y clasificar incidencias rápidamente.
-3. **Opción C · API de Google Gemini (`gemini-2.5-flash`) mediante SDK `google-genai` (Opción Seleccionada):**
+3. **Opción C · API de Google Gemini (`gemini-3.8-flash`) mediante SDK `google-genai` (Opción Seleccionada):**
    - *Rol:* Clasificación zero-shot, extracción contextual de entidades y redacción en una única llamada unificada.
    - *Ventajas:* Latencia ultrabaja (<600 ms), cuota gratuita holgada en Google AI Studio, peso pluma en RAM para Streamlit Cloud, y soporte nativo de *Structured Outputs* (garantía de JSON válido bajo esquema estricto).
 
 ### 6.2 Matriz de Comparación Técnica
 
-| Criterio Técnico | Hugging Face Zero-Shot (Local o API) | RAG con Embeddings | Google Gemini 2.5 Flash |
+| Criterio Técnico | Hugging Face Zero-Shot (Local o API) | RAG con Embeddings | Google Gemini 3.8 Flash |
 | :--- | :--- | :--- | :--- |
 | **Estabilidad en Streamlit Cloud** | 🔴 Riesgosa (OOM o Cold Start 503) | 🟡 Media (consumo de memoria vectorial) | 🟢 Óptima (peso pluma, sin descargas locales) |
 | **Latencia de Respuesta** | 🟡 2 a 4 segundos | 🟡 2 a 3 segundos | 🟢 < 600 milisegundos |
@@ -128,7 +128,7 @@ Reglas obligatorias:
 | **Riesgo Operativo (Regla 3/10)** | Alto por dependencias externas y RAM | Medio por gestión de índices | Mínimo (alta disponibilidad y SLA) |
 
 ### 6.3 Decisión Final y Justificación
-Se descarta la arquitectura desacoplada (Hugging Face para clasificar + Gemini para redactar) porque fragmentar la tarea en dos servicios gratuitos duplica los puntos de fallo y multiplica la latencia. Gemini 2.5 Flash resuelve ambos problemas simultáneamente con mayor coherencia semántica: comprende el tono coloquial del cliente de WhatsApp, deduce la urgencia operativa y genera una respuesta contextual impecable en una sola inferencia.
+Se descarta la arquitectura desacoplada (Hugging Face para clasificar + Gemini para redactar) porque fragmentar la tarea en dos servicios gratuitos duplica los puntos de fallo y multiplica la latencia. Gemini 3.8 Flash resuelve ambos problemas simultáneamente con mayor coherencia semántica: comprende el tono coloquial del cliente de WhatsApp, deduce la urgencia operativa y genera una respuesta contextual impecable en una sola inferencia.
 
 ### 6.4 ¿Qué pasa si falla la IA? (Plan de Contingencia)
 1. **Agotamiento de cuota (`ResourceExhausted` / 429):** La app captura la excepción de forma controlada y presenta un mensaje explicativo al técnico recomendando esperar 60 segundos, sin interrumpir la sesión.
