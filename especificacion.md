@@ -42,7 +42,9 @@ El técnico recibe decenas de mensajes informales de clientes por WhatsApp a lo 
    - `Consulta General`
    - `No Interpretable` (Texto sin sentido, caracteres aleatorios o spam)
 3. **Resumen Operativo:** Ficha sintética con `Dispositivo`, `Falla / Solicitud` y `Acción recomendada`.
-4. **Borrador de Respuesta al Cliente:** Texto listo para copiar con tono profesional, educado y enfocado a la resolución o cita en taller.
+4. **Borrador de Respuesta al Cliente:** Área de texto multilínea interactiva (\st.text_area\) que permite al técnico previsualizar, afinar o personalizar el mensaje antes de enviarlo por WhatsApp.
+5. **Historial de Mensajes de la Sesión:** Almacenamiento dinámico en \st.session_state\ para consultar mensajes previos procesados, métricas agregadas (total de casos, garantías críticas, latencia media) y exportación directa a archivo CSV.
+6. **Telemetría de Latencia en Vivo:** Registro y visualización del tiempo de respuesta del modelo en segundos.
 
 ### 2.3 Salidas
 Estructura de datos mostrada en pantalla:

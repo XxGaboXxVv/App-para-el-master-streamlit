@@ -1,9 +1,12 @@
+import csv
+import io
 import json
 import os
 import re
 import time
-import streamlit as st
+from datetime import datetime
 from typing import Optional, TypedDict
+import streamlit as st
 
 try:
     from google import genai
@@ -21,6 +24,18 @@ class ResultadoClasificacion(TypedDict):
     falla_reportada: str
     accion_recomendada: str
     borrador_respuesta: str
+    latencia_segundos: float
+
+class RegistroHistorial(TypedDict):
+    timestamp: str
+    mensaje_original: str
+    urgencia: str
+    categoria: str
+    dispositivo: str
+    falla_reportada: str
+    accion_recomendada: str
+    borrador_respuesta: str
+    latencia_segundos: float
 
 PRESET_MESSAGES: dict[str, str] = {
     "⚠️ Reclamo de Garantía": (
@@ -102,13 +117,34 @@ def obtener_clave_gemini() -> Optional[str]:
 def ejecutar_clasificacion_gemini(
     mensaje_texto: str, clave_api: str, temperatura: float = 0.2
 ) -> ResultadoClasificacion:
+    tiempo_inicio = time.perf_counter()
     cliente_genai = genai.Client(api_key=clave_api)
-    configuracion = types.GenerateContentConfig(
-        system_instruction=PROMPT_SISTEMA_OPERATIVO,
-        response_mime_type="application/json",
-        temperature=temperatura,
-        max_output_tokens=1500,
-    )
+
+    configuracion = None
+    try:
+        configuracion = types.GenerateContentConfig(
+            system_instruction=PROMPT_SISTEMA_OPERATIVO,
+            response_mime_type="application/json",
+            temperature=temperatura,
+            max_output_tokens=1500,
+            thinking_config=types.ThinkingConfig(thinking_level="LOW"),
+        )
+    except Exception:
+        try:
+            configuracion = types.GenerateContentConfig(
+                system_instruction=PROMPT_SISTEMA_OPERATIVO,
+                response_mime_type="application/json",
+                temperature=temperatura,
+                max_output_tokens=1500,
+                thinking_config={"thinking_level": "LOW"},
+            )
+        except Exception:
+            configuracion = types.GenerateContentConfig(
+                system_instruction=PROMPT_SISTEMA_OPERATIVO,
+                response_mime_type="application/json",
+                temperature=temperatura,
+                max_output_tokens=1500,
+            )
 
     ultimo_error: Optional[Exception] = None
     respuesta = None
@@ -142,6 +178,8 @@ def ejecutar_clasificacion_gemini(
     if color not in ["error", "warning", "info"]:
         color = "error" if "ALTA" in urgencia else "warning" if "MEDIA" in urgencia else "info"
 
+    latencia_total = round(time.perf_counter() - tiempo_inicio, 2)
+
     return {
         "urgencia": urgencia,
         "urgencia_color": color,
@@ -150,6 +188,7 @@ def ejecutar_clasificacion_gemini(
         "falla_reportada": str(datos_json.get("falla_reportada", "Sin detalle")),
         "accion_recomendada": str(datos_json.get("accion_recomendada", "Revisión en mostrador")),
         "borrador_respuesta": str(datos_json.get("borrador_respuesta", "")),
+        "latencia_segundos": latencia_total,
     }
 
 def configurar_pagina() -> None:
@@ -192,6 +231,76 @@ def renderizar_barra_lateral() -> float:
         )
         return temperatura
 
+def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
+    buffer = io.StringIO()
+    campos = [
+        "timestamp",
+        "urgencia",
+        "categoria",
+        "dispositivo",
+        "falla_reportada",
+        "accion_recomendada",
+        "borrador_respuesta",
+        "latencia_segundos",
+        "mensaje_original",
+    ]
+    escritor = csv.DictWriter(buffer, fieldnames=campos)
+    escritor.writeheader()
+    for fila in historial:
+        escritor.writerow(fila)
+    return buffer.getvalue()
+
+def renderizar_historial_sesion() -> None:
+    historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
+    if not historial:
+        return
+
+    st.subheader(f"📚 Historial de Mensajes de la Sesión ({len(historial)})")
+
+    col_metrica_total, col_metrica_criticas, col_metrica_latencia = st.columns(3)
+    criticas = sum(1 for item in historial if "ALTA" in item["urgencia"])
+    promedio_latencia = round(sum(item["latencia_segundos"] for item in historial) / len(historial), 2)
+
+    with col_metrica_total:
+        st.metric("Mensajes Analizados", len(historial))
+    with col_metrica_criticas:
+        st.metric("Garantías / Críticas", criticas)
+    with col_metrica_latencia:
+        st.metric("Latencia Promedio", f"{promedio_latencia}s")
+
+    with st.expander("Ver detalle de registros anteriores", expanded=False):
+        for indice, entrada in enumerate(historial):
+            st.markdown(
+                f"**#{len(historial) - indice} · {entrada['timestamp']}** | "
+                f"**{entrada['urgencia']}** | {entrada['categoria']} | *{entrada['dispositivo']}* "
+                f"*(⚡ {entrada['latencia_segundos']}s)*"
+            )
+            st.caption(f"Mensaje original: {entrada['mensaje_original']}")
+            st.markdown(f"**Acción recomendada:** {entrada['accion_recomendada']}")
+            st.text_area(
+                f"Borrador registrado #{len(historial) - indice}",
+                value=entrada["borrador_respuesta"],
+                height=90,
+                key=f"historial_borrador_{indice}",
+                disabled=True,
+            )
+            st.divider()
+
+    col_descargar, col_vaciar = st.columns([2, 5])
+    with col_descargar:
+        contenido_csv = generar_csv_historial(historial)
+        st.download_button(
+            label="📥 Exportar Historial (CSV)",
+            data=contenido_csv,
+            file_name="historial_clasificaciones_taller.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with col_vaciar:
+        if st.button("🗑️ Vaciar Historial", use_container_width=False):
+            st.session_state["historial_mensajes"] = []
+            st.rerun()
+
 def main() -> None:
     configurar_pagina()
     temperatura_seleccionada = renderizar_barra_lateral()
@@ -204,6 +313,12 @@ def main() -> None:
 
     if "mensaje_input" not in st.session_state:
         st.session_state["mensaje_input"] = ""
+
+    if "resultado_actual" not in st.session_state:
+        st.session_state["resultado_actual"] = None
+
+    if "historial_mensajes" not in st.session_state:
+        st.session_state["historial_mensajes"] = []
 
     mensaje_actual = st.text_area(
         label="💬 Mensaje recibido del cliente:",
@@ -218,6 +333,7 @@ def main() -> None:
     with columna_limpiar:
         if st.button("🗑️ Limpiar", use_container_width=False):
             st.session_state["mensaje_input"] = ""
+            st.session_state["resultado_actual"] = None
             st.rerun()
 
     if boton_analizar:
@@ -249,6 +365,21 @@ def main() -> None:
                 resultado = ejecutar_clasificacion_gemini(
                     texto_a_evaluar, clave_api, temperatura=temperatura_seleccionada
                 )
+                st.session_state["resultado_actual"] = resultado
+
+                registro_nuevo: RegistroHistorial = {
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "mensaje_original": texto_a_evaluar,
+                    "urgencia": resultado["urgencia"],
+                    "categoria": resultado["categoria"],
+                    "dispositivo": resultado["dispositivo"],
+                    "falla_reportada": resultado["falla_reportada"],
+                    "accion_recomendada": resultado["accion_recomendada"],
+                    "borrador_respuesta": resultado["borrador_respuesta"],
+                    "latencia_segundos": resultado["latencia_segundos"],
+                }
+                st.session_state["historial_mensajes"].insert(0, registro_nuevo)
+
         except APIError as error_api:
             detalle = str(error_api)
             if "RESOURCE_EXHAUSTED" in detalle or "429" in detalle or getattr(error_api, "code", None) == 429:
@@ -267,36 +398,57 @@ def main() -> None:
             st.error(f"📡 **Error inesperado de comunicación:** {error_general}")
             return
 
-        if resultado["categoria"] == "No Interpretable":
+    resultado_activo = st.session_state.get("resultado_actual")
+    if resultado_activo:
+        if resultado_activo["categoria"] == "No Interpretable":
             st.warning("⚠️ **Mensaje no concluyente:** La IA determinó que el texto no contiene una consulta técnica o comercial reconocible.")
-            st.info(f"**Borrador sugerido:** {resultado['borrador_respuesta']}")
-            return
+            st.caption("Borrador sugerido para pedir aclaración:")
+            st.text_area(
+                label="Borrador editable de aclaración",
+                value=resultado_activo["borrador_respuesta"],
+                height=100,
+                label_visibility="collapsed",
+                key="borrador_no_interpretable",
+            )
+        else:
+            st.markdown("---")
+            col_titulo, col_latencia = st.columns([3, 1])
+            with col_titulo:
+                st.subheader("📋 Resultado de la Clasificación")
+            with col_latencia:
+                st.caption(f"⚡ Inferencia: {resultado_activo['latencia_segundos']}s")
 
-        st.markdown("---")
-        st.subheader("📋 Resultado de la Clasificación")
+            col_urgencia, col_categoria = st.columns(2)
+            with col_urgencia:
+                if resultado_activo["urgencia_color"] == "error":
+                    st.error(f"**Urgencia:** {resultado_activo['urgencia']}")
+                elif resultado_activo["urgencia_color"] == "warning":
+                    st.warning(f"**Urgencia:** {resultado_activo['urgencia']}")
+                else:
+                    st.info(f"**Urgencia:** {resultado_activo['urgencia']}")
 
-        col_urgencia, col_categoria = st.columns(2)
-        with col_urgencia:
-            if resultado["urgencia_color"] == "error":
-                st.error(f"**Urgencia:** {resultado['urgencia']}")
-            elif resultado["urgencia_color"] == "warning":
-                st.warning(f"**Urgencia:** {resultado['urgencia']}")
-            else:
-                st.info(f"**Urgencia:** {resultado['urgencia']}")
+            with col_categoria:
+                st.success(f"**Categoría:** {resultado_activo['categoria']}")
 
-        with col_categoria:
-            st.success(f"**Categoría:** {resultado['categoria']}")
+            col_resumen, col_accion = st.columns(2)
+            with col_resumen:
+                st.markdown(f"**📱 Dispositivo identificado:** {resultado_activo['dispositivo']}")
+                st.markdown(f"**⚠️ Falla reportada:** {resultado_activo['falla_reportada']}")
+            with col_accion:
+                st.markdown(f"**🎯 Acción recomendada en taller:** {resultado_activo['accion_recomendada']}")
 
-        col_resumen, col_accion = st.columns(2)
-        with col_resumen:
-            st.markdown(f"**📱 Dispositivo identificado:** {resultado['dispositivo']}")
-            st.markdown(f"**⚠️ Falla reportada:** {resultado['falla_reportada']}")
-        with col_accion:
-            st.markdown(f"**🎯 Acción recomendada en taller:** {resultado['accion_recomendada']}")
+            st.markdown("### ✍️ Borrador de Respuesta para WhatsApp")
+            st.caption("Puedes previsualizar, editar o copiar directamente el texto para responder al cliente:")
+            st.text_area(
+                label="Borrador de respuesta editable",
+                value=resultado_activo["borrador_respuesta"],
+                height=130,
+                label_visibility="collapsed",
+                key="borrador_respuesta_whatsapp",
+            )
 
-        st.markdown("### ✍️ Borrador de Respuesta para WhatsApp")
-        st.caption("Copia y pega este texto directamente en el chat con el cliente:")
-        st.code(resultado["borrador_respuesta"], language="text")
+    st.markdown("---")
+    renderizar_historial_sesion()
 
 if __name__ == "__main__":
     main()
