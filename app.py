@@ -107,6 +107,7 @@ def ejecutar_clasificacion_gemini(
         system_instruction=PROMPT_SISTEMA_OPERATIVO,
         response_mime_type="application/json",
         temperature=temperatura,
+        max_output_tokens=1500,
     )
 
     ultimo_error: Optional[Exception] = None
