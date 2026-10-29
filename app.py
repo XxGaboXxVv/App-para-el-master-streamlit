@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import streamlit as st
 from typing import Optional, TypedDict
 
@@ -40,10 +41,7 @@ PRESET_MESSAGES: dict[str, str] = {
     ),
 }
 
-MODELOS_DISPONIBLES: list[str] = [
-    "gemini-3.8-flash",
-    "gemini-2.5-flash",
-]
+MODELO_ACTIVO: str = "gemini-3.8-flash"
 
 PROMPT_SISTEMA_OPERATIVO: str = (
     "Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.\n"
@@ -101,21 +99,23 @@ def obtener_clave_gemini() -> Optional[str]:
 
     return None
 
-def ejecutar_clasificacion_gemini(mensaje_texto: str, clave_api: str) -> ResultadoClasificacion:
+def ejecutar_clasificacion_gemini(
+    mensaje_texto: str, clave_api: str, temperatura: float = 0.2
+) -> ResultadoClasificacion:
     cliente_genai = genai.Client(api_key=clave_api)
     configuracion = types.GenerateContentConfig(
         system_instruction=PROMPT_SISTEMA_OPERATIVO,
         response_mime_type="application/json",
-        temperature=0.1,
+        temperature=temperatura,
     )
 
     ultimo_error: Optional[Exception] = None
     respuesta = None
 
-    for nombre_modelo in MODELOS_DISPONIBLES:
+    for intento in range(2):
         try:
             respuesta = cliente_genai.models.generate_content(
-                model=nombre_modelo,
+                model=MODELO_ACTIVO,
                 contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
                 config=configuracion,
             )
@@ -123,7 +123,11 @@ def ejecutar_clasificacion_gemini(mensaje_texto: str, clave_api: str) -> Resulta
                 break
         except Exception as error_intento:
             ultimo_error = error_intento
-            continue
+            detalle_intento = str(error_intento)
+            if ("503" in detalle_intento or "UNAVAILABLE" in detalle_intento) and intento == 0:
+                time.sleep(2)
+                continue
+            raise error_intento
 
     if not respuesta or not respuesta.text:
         if ultimo_error:
@@ -155,7 +159,7 @@ def configurar_pagina() -> None:
         initial_sidebar_state="expanded",
     )
 
-def renderizar_barra_lateral() -> None:
+def renderizar_barra_lateral() -> float:
     with st.sidebar:
         st.header("🛠️ Asistente de Taller")
         st.caption("Clasificador PyME · WhatsApp")
@@ -169,15 +173,27 @@ def renderizar_barra_lateral() -> None:
                 st.session_state["mensaje_input"] = texto_ejemplo
 
         st.markdown("---")
+        st.subheader("⚙️ Parámetros del Modelo")
+        temperatura = st.slider(
+            "Creatividad de respuesta (Temperature):",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.2,
+            step=0.1,
+            help="Valores bajos (0.0-0.2) son deterministas y precisos. Valores mayores dan respuestas más creativas y variadas.",
+        )
+
+        st.markdown("---")
         st.subheader("📌 Acerca del Sistema")
         st.markdown(
-            "Módulo de triaje y respuesta inmediata para talleres de reparación de celulares. "
-            "Procesamiento impulsado exclusivamente por **Google Gemini 3.8 Flash**."
+            "Módulo de clasificación y respuesta inmediata para talleres de reparación de celulares. "
+            "Procesamiento impulsado exclusivamente por **Google Gemini**."
         )
+        return temperatura
 
 def main() -> None:
     configurar_pagina()
-    renderizar_barra_lateral()
+    temperatura_seleccionada = renderizar_barra_lateral()
 
     st.title("🛠️ Asistente de Mensajes para Taller · Clasificador PyME")
     st.markdown(
@@ -228,12 +244,16 @@ def main() -> None:
             return
 
         try:
-            with st.spinner("🤖 Analizando mensaje con Google Gemini 3.8 Flash..."):
-                resultado = ejecutar_clasificacion_gemini(texto_a_evaluar, clave_api)
+            with st.spinner("🤖 Analizando mensaje con Google Gemini..."):
+                resultado = ejecutar_clasificacion_gemini(
+                    texto_a_evaluar, clave_api, temperatura=temperatura_seleccionada
+                )
         except APIError as error_api:
             detalle = str(error_api)
             if "RESOURCE_EXHAUSTED" in detalle or "429" in detalle or getattr(error_api, "code", None) == 429:
                 st.error("⏳ **Límite de cuota alcanzado (429):** El servicio de Gemini ha recibido demasiadas peticiones por minuto. Espera 60 segundos antes de reenviar.")
+            elif "UNAVAILABLE" in detalle or "503" in detalle or getattr(error_api, "code", None) == 503:
+                st.error("⏳ **Servidores de Gemini saturados (503):** Google está experimentando alta demanda en este momento. Por favor, reintenta en unos instantes.")
             elif "API_KEY_INVALID" in detalle or "400" in detalle or getattr(error_api, "code", None) == 400:
                 st.error("🔑 **Clave no válida:** La clave de API configurada fue rechazada por Google AI Studio. Verifica tus credenciales.")
             else:
