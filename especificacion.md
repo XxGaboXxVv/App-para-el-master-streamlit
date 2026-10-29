@@ -40,6 +40,7 @@ El técnico recibe decenas de mensajes informales de clientes por WhatsApp a lo 
    - `Cotización de Reparación`
    - `Estatus de Dispositivo`
    - `Consulta General`
+   - `No Interpretable` (Texto sin sentido, caracteres aleatorios o spam)
 3. **Resumen Operativo:** Ficha sintética con `Dispositivo`, `Falla / Solicitud` y `Acción recomendada`.
 4. **Borrador de Respuesta al Cliente:** Texto listo para copiar con tono profesional, educado y enfocado a la resolución o cita en taller.
 
@@ -56,11 +57,13 @@ Estructura de datos mostrada en pantalla:
 
 | Caso Límite | Comportamiento Esperado de la App |
 | :--- | :--- |
-| **Entrada vacía o solo espacios** | Muestra mensaje de advertencia: *"Por favor, pega el texto de un mensaje para analizar"* y no ejecuta la llamada. |
+| **Entrada vacía o solo espacios** | Muestra advertencia: *"El campo está vacío. Pega o escribe un mensaje antes de presionar Clasificar"* y detiene la llamada. |
+| **Texto incoherente o teclado aleatorio** (*ej: "hhhggvv"*) | Filtrado por validación léxica previa o clasificado por IA como `No Interpretable`. Se muestra aviso: *"Mensaje no interpretable"* y no se inventan diagnósticos falsos. |
 | **Mensaje excesivamente corto o ambiguo** (*ej: "hola", "info"*) | Clasifica en Urgencia `BAJA` y Categoría `Consulta General`. Responde pidiendo cortésmente marca, modelo y falla del equipo. |
 | **Garantía o cliente enfadado** (*ej: "me lo dejaron peor, no prende nada"*) | Clasifica automáticamente en `ALTA / GARANTÍA CRÍTICA`. Genera respuesta con máxima prioridad, disculpa empática e invitación a llevar el equipo de inmediato para revisión prioritaria. |
 | **Múltiples fallas en un solo mensaje** (*ej: "se cayó, se rompió la pantalla, no carga y la cámara vibra"*) | El resumen operativo lista todas las fallas detectadas en viñetas y el borrador solicita revisión física completa para diagnóstico. |
-| **Fallo de conectividad o cuota excedida (`ResourceExhausted`)** | Captura la excepción sin romper la app y muestra: *"Servicio temporalmente saturado. Intenta de nuevo en unos momentos"*. |
+| **Clave API no configurada** | Detiene la ejecución con aviso administrativo claro: *"Servicio no configurado: No se detectó la clave de API GEMINI_API_KEY"*, sin recurrir a simulaciones encubiertas. |
+| **Fallo de conectividad o cuota excedida (`ResourceExhausted`)** | Captura la excepción sin romper la app y muestra: *"Límite de cuota alcanzado (429): Espera 60 segundos antes de reenviar"*. |
 
 ---
 
@@ -68,8 +71,8 @@ Estructura de datos mostrada en pantalla:
 
 1. **Criterio 1 (Usabilidad No Técnica):** El técnico puede analizar un mensaje en menos de 2 clics (pegar y analizar) y ver el resultado en una única pantalla legible en móvil.
 2. **Criterio 2 (Manejo de Respuestas):** El borrador de respuesta debe estar en un bloque que permita copiarlo con un solo clic.
-3. **Criterio 3 (Seguridad Absoluta):** La aplicación no debe contener ninguna API Key en texto plano; debe usar variables de entorno o `st.secrets`.
-4. **Criterio 4 (Resiliencia ante Casos Vacíos):** Al presionar el botón con el campo vacío, la aplicación no produce errores de ejecución (`tracebacks`), sino una alerta clara en pantalla.
+3. **Criterio 3 (Seguridad Absoluta):** La aplicación no debe contener ninguna API Key en texto plano; debe usar exclusivamente `st.secrets`.
+4. **Criterio 4 (Resiliencia ante Casos Vacíos e Ininteligibles):** Ante campos vacíos o cadenas aleatorias, la aplicación no produce errores de ejecución ni diagnósticos ficticios.
 
 ---
 
@@ -83,7 +86,7 @@ Tu trabajo es analizar el mensaje crudo enviado por un cliente por WhatsApp y ge
 Debes responder estrictamente en formato JSON con la siguiente estructura:
 {
   "urgencia": "ALTA / GARANTÍA CRÍTICA" | "MEDIA" | "BAJA",
-  "categoria": "Garantía / Reclamo" | "Cotización de Reparación" | "Estatus de Dispositivo" | "Consulta General",
+  "categoria": "Garantía / Reclamo" | "Cotización de Reparación" | "Estatus de Dispositivo" | "Consulta General" | "No Interpretable",
   "dispositivo": "Marca y modelo identificado, o 'No especificado'",
   "falla_reportada": "Descripción breve del síntoma o daño",
   "accion_recomendada": "Acción que debe tomar el técnico inmediatamente",
@@ -91,9 +94,10 @@ Debes responder estrictamente en formato JSON con la siguiente estructura:
 }
 
 Reglas obligatorias:
-1. Si el cliente menciona que una reparación previa falló o reclama una garantía, la urgencia SIEMPRE es "ALTA / GARANTÍA CRÍTICA".
-2. Si el mensaje es ambiguo, pide amablemente los datos faltantes en el borrador de respuesta.
-3. El borrador de respuesta debe sonar humano, cercano y profesional.
+1. Si el texto es incoherente o caracteres aleatorios, clasifica como "No Interpretable" y solicita aclaración sin inventar servicios.
+2. Si el cliente menciona que una reparación previa falló o reclama una garantía, la urgencia SIEMPRE es "ALTA / GARANTÍA CRÍTICA".
+3. Si el mensaje es ambiguo, pide amablemente los datos faltantes en el borrador de respuesta.
+4. El borrador de respuesta debe sonar humano, cercano y profesional.
 ```
 
 ---
@@ -129,5 +133,4 @@ Se descarta la arquitectura desacoplada (Hugging Face para clasificar + Gemini p
 ### 6.4 ¿Qué pasa si falla la IA? (Plan de Contingencia)
 1. **Agotamiento de cuota (`ResourceExhausted` / 429):** La app captura la excepción de forma controlada y presenta un mensaje explicativo al técnico recomendando esperar 60 segundos, sin interrumpir la sesión.
 2. **Fallo de conexión o timeout de red:** Se activa un aviso claro indicando revisar la conexión a internet.
-3. **Mensaje sin sentido o indescifrable:** La IA clasifica en Urgencia Baja y emite un borrador estándar solicitando al cliente que aclare su solicitud.
-
+3. **Mensaje sin sentido o indescifrable:** Se clasifica como `No Interpretable` y se emite un borrador estándar solicitando aclaración, sin inventar diagnósticos técnicos ficticios.

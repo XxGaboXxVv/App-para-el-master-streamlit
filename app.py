@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import streamlit as st
 from typing import Optional, TypedDict
 
@@ -41,30 +42,51 @@ PRESET_MESSAGES: dict[str, str] = {
 
 PROMPT_SISTEMA_OPERATIVO: str = (
     "Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.\n"
-    "Tu trabajo es analizar el mensaje crudo enviado por un cliente por WhatsApp y generar una clasificación operativa estructurada junto con un borrador de respuesta.\n\n"
-    "Debes responder estrictamente en formato JSON con la siguiente estructura de claves:\n"
+    "Tu función es analizar mensajes reales de clientes recibidos por WhatsApp para clasificar su urgencia, "
+    "identificar la intención técnica y redactar una respuesta profesional.\n\n"
+    "Estructura obligatoria de respuesta en formato JSON:\n"
     "{\n"
     '  "urgencia": "ALTA / GARANTÍA CRÍTICA" | "MEDIA" | "BAJA",\n'
     '  "urgencia_color": "error" | "warning" | "info",\n'
-    '  "categoria": "Garantía / Reclamo" | "Cotización de Reparación" | "Estatus de Dispositivo" | "Consulta General",\n'
+    '  "categoria": "Garantía / Reclamo" | "Cotización de Reparación" | "Estatus de Dispositivo" | "Consulta General" | "No Interpretable",\n'
     '  "dispositivo": "Marca y modelo identificado, o No especificado",\n'
-    '  "falla_reportada": "Descripción concisa del síntoma o daño",\n'
-    '  "accion_recomendada": "Acción inmediata que debe tomar el técnico en taller",\n'
-    '  "borrador_respuesta": "Mensaje educado, empático y profesional listo para enviar al cliente por WhatsApp"\n'
+    '  "falla_reportada": "Descripción del problema reportado o No identificable",\n'
+    '  "accion_recomendada": "Acción que debe tomar el técnico en mostrador",\n'
+    '  "borrador_respuesta": "Mensaje profesional para responder al cliente por WhatsApp"\n'
     "}\n\n"
-    "Reglas obligatorias:\n"
-    "1. Si el cliente menciona que una reparación previa falló, el touch no funciona tras una entrega, o reclama una garantía, la urgencia es SIEMPRE 'ALTA / GARANTÍA CRÍTICA' y urgencia_color es 'error'.\n"
-    "2. Si el mensaje es una cotización o consulta de estatus de un equipo, la urgencia es 'MEDIA' y urgencia_color es 'warning'.\n"
-    "3. Si el mensaje es vago, ambiguo o solo un saludo, la urgencia es 'BAJA' y urgencia_color es 'info'. En el borrador_respuesta, solicita amablemente marca, modelo y síntoma.\n"
-    "4. El borrador_respuesta debe sonar humano, empático y profesional, listo para copiar y enviar en WhatsApp.\n"
+    "Reglas estrictas de clasificación:\n"
+    "1. Si el texto es incoherente, letras al azar (ejemplo: 'hhhggvv'), spam o no tiene sentido comunicativo: "
+    "asigna categoria='No Interpretable', urgencia='BAJA', urgencia_color='info', dispositivo='No identificable', "
+    "falla_reportada='Texto ininteligible', accion_recomendada='Ignorar o solicitar aclaración al remitente', "
+    "y borrador_respuesta='Hola, hemos recibido tu mensaje pero no es claro. ¿Podrías indicarnos en qué podemos ayudarte con tu equipo?'.\n"
+    "2. Si el mensaje describe una reparación previa con fallo, pantalla defectuosa tras entrega o reclama garantía: "
+    "urgencia='ALTA / GARANTÍA CRÍTICA' y urgencia_color='error'.\n"
+    "3. Si es una cotización o consulta de reparación en curso: urgencia='MEDIA' y urgencia_color='warning'.\n"
+    "4. Si es un saludo vago o pregunta muy amplia pero comprensible: urgencia='BAJA', categoria='Consulta General' "
+    "y en borrador_respuesta solicita amablemente marca, modelo y síntoma.\n"
 )
 
-def resolver_api_key_gemini() -> Optional[str]:
+def validar_coherencia_minima(texto: str) -> bool:
+    texto_limpio = texto.strip()
+    if len(texto_limpio) < 4:
+        return False
+
+    vocales = len(re.findall(r"[aeiouáéíóúüAEIOUÁÉÍÓÚÜ]", texto_limpio))
+    if vocales == 0:
+        return False
+
+    palabras = texto_limpio.split()
+    if len(palabras) == 1 and len(texto_limpio) > 8 and vocales == 1:
+        return False
+
+    return True
+
+def obtener_clave_gemini() -> Optional[str]:
     try:
         if "GEMINI_API_KEY" in st.secrets:
-            clave_secrets = st.secrets["GEMINI_API_KEY"]
-            if isinstance(clave_secrets, str) and clave_secrets.strip():
-                return clave_secrets.strip()
+            clave = st.secrets["GEMINI_API_KEY"]
+            if isinstance(clave, str) and clave.strip():
+                return clave.strip()
     except Exception:
         pass
 
@@ -72,25 +94,20 @@ def resolver_api_key_gemini() -> Optional[str]:
     if clave_entorno and clave_entorno.strip():
         return clave_entorno.strip()
 
-    clave_manual = st.session_state.get("gemini_api_key_manual")
-    if isinstance(clave_manual, str) and clave_manual.strip():
-        return clave_manual.strip()
-
     return None
 
-def clasificar_con_gemini_api(mensaje_texto: str, clave_api: str) -> ResultadoClasificacion:
+def ejecutar_clasificacion_gemini(mensaje_texto: str, clave_api: str) -> ResultadoClasificacion:
     cliente_genai = genai.Client(api_key=clave_api)
-    configuracion_llamada = types.GenerateContentConfig(
+    configuracion = types.GenerateContentConfig(
         system_instruction=PROMPT_SISTEMA_OPERATIVO,
         response_mime_type="application/json",
-        temperature=0.2,
+        temperature=0.1,
     )
-    prompt_usuario = f"Mensaje del cliente de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\""
 
     respuesta = cliente_genai.models.generate_content(
         model="gemini-2.5-flash",
-        contents=prompt_usuario,
-        config=configuracion_llamada,
+        contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
+        config=configuracion,
     )
 
     if not respuesta.text:
@@ -98,140 +115,57 @@ def clasificar_con_gemini_api(mensaje_texto: str, clave_api: str) -> ResultadoCl
 
     datos_json: dict[str, str] = json.loads(respuesta.text)
 
-    urgencia_detectada = str(datos_json.get("urgencia", "MEDIA"))
-    color_detectado = str(datos_json.get("urgencia_color", ""))
-    if not color_detectado:
-        if "ALTA" in urgencia_detectada:
-            color_detectado = "error"
-        elif "MEDIA" in urgencia_detectada:
-            color_detectado = "warning"
-        else:
-            color_detectado = "info"
+    urgencia = str(datos_json.get("urgencia", "BAJA"))
+    color = str(datos_json.get("urgencia_color", "info"))
+    if color not in ["error", "warning", "info"]:
+        color = "error" if "ALTA" in urgencia else "warning" if "MEDIA" in urgencia else "info"
 
     return {
-        "urgencia": urgencia_detectada,
-        "urgencia_color": color_detectado,
+        "urgencia": urgencia,
+        "urgencia_color": color,
         "categoria": str(datos_json.get("categoria", "Consulta General")),
         "dispositivo": str(datos_json.get("dispositivo", "No especificado")),
-        "falla_reportada": str(datos_json.get("falla_reportada", "Sin detalle técnico")),
+        "falla_reportada": str(datos_json.get("falla_reportada", "Sin detalle")),
         "accion_recomendada": str(datos_json.get("accion_recomendada", "Revisión en mostrador")),
-        "borrador_respuesta": str(datos_json.get("borrador_respuesta", "Hola, gracias por comunicarte con nuestro taller.")),
-    }
-
-def simular_clasificacion_mensaje(mensaje_texto: str) -> ResultadoClasificacion:
-    texto_minusculas = mensaje_texto.lower()
-
-    if any(palabra in texto_minusculas for palabra in ["garantía", "garantia", "ayer", "no responde", "touch", "falló", "peor"]):
-        return {
-            "urgencia": "ALTA / GARANTÍA CRÍTICA",
-            "urgencia_color": "error",
-            "categoria": "Garantía / Reclamo",
-            "dispositivo": "Apple iPhone 11",
-            "falla_reportada": "Falla táctil tras reparación previa (zona inferior no responde)",
-            "accion_recomendada": "Revisión inmediata sin costo. Dar prioridad en mesa de trabajo.",
-            "borrador_respuesta": (
-                "¡Hola! Lamento mucho el inconveniente con tu iPhone 11. En nuestro taller todos nuestros "
-                "trabajos cuentan con garantía total. Por favor tráelo de inmediato hoy mismo; "
-                "le daremos prioridad inmediata en mesa para revisarlo y dejarlo al 100%. Te esperamos."
-            ),
-        }
-
-    if any(palabra in texto_minusculas for palabra in ["cuánto", "cuanto", "precio", "costo", "sale", "pantalla", "cotización", "cotizacion"]):
-        return {
-            "urgencia": "MEDIA",
-            "urgencia_color": "warning",
-            "categoria": "Cotización de Reparación",
-            "dispositivo": "Samsung Galaxy A54",
-            "falla_reportada": "Cristal roto / daño físico en display frontal",
-            "accion_recomendada": "Consultar stock de refacción OLED/Incell y enviar rango de precio con tiempo de entrega.",
-            "borrador_respuesta": (
-                "¡Hola! Claro que sí, con gusto te cotizamos. Para el Samsung Galaxy A54 manejamos "
-                "pantalla de calidad original con garantía de 30 días. El servicio incluye instalación "
-                "y queda listo en aproximadamente 2 horas previa confirmación. ¿Te gustaría agendar una hora para recibirlo?"
-            ),
-        }
-
-    if any(palabra in texto_minusculas for palabra in ["estatus", "cómo va", "como va", "listo", "recoger", "quedó"]):
-        return {
-            "urgencia": "MEDIA",
-            "urgencia_color": "warning",
-            "categoria": "Estatus de Dispositivo",
-            "dispositivo": "Xiaomi Redmi Note 12",
-            "falla_reportada": "Centro de carga",
-            "accion_recomendada": "Verificar prueba final de carga y notificar retiro en mostrador.",
-            "borrador_respuesta": (
-                "¡Hola! Qué gusto saludarte. Tu Xiaomi Redmi Note 12 se encuentra en la fase final "
-                "de pruebas de voltaje para garantizar que cargue de forma óptima. En unos momentos te confirmamos "
-                "la hora para que puedas pasar a recogerlo con tu nota de servicio."
-            ),
-        }
-
-    return {
-        "urgencia": "BAJA",
-        "urgencia_color": "info",
-        "categoria": "Consulta General",
-        "dispositivo": "No especificado",
-        "falla_reportada": "Solicitud general de información de servicios",
-        "accion_recomendada": "Solicitar marca, modelo y falla específica para dar diagnóstico preliminar.",
-        "borrador_respuesta": (
-            "¡Hola! Gracias por comunicarte con nuestro taller. Sí, reparamos dispositivos de todas las "
-            "marcas principales (pantallas, baterías, centros de carga y fallas de placa). ¿Qué modelo "
-            "de equipo tienes y qué falla presenta para orientarte mejor?"
-        ),
+        "borrador_respuesta": str(datos_json.get("borrador_respuesta", "")),
     }
 
 def configurar_pagina() -> None:
     st.set_page_config(
-        page_title="Asistente para Taller · Clasificador PyME",
+        page_title="Asistente de Taller · Clasificador PyME",
         page_icon="🛠️",
         layout="wide",
         initial_sidebar_state="expanded",
     )
 
-def renderizar_barra_lateral(clave_activa: Optional[str]) -> None:
+def renderizar_barra_lateral() -> None:
     with st.sidebar:
-        st.header("🛠️ Asistente para Taller")
+        st.header("🛠️ Asistente de Taller")
         st.caption("Clasificador PyME · WhatsApp")
         st.markdown("---")
 
-        if clave_activa and GENAI_DISPONIBLE:
-            st.success("🟢 **Motor IA:** Google Gemini 2.5 Flash conectado")
-        else:
-            st.info("🟡 **Motor IA:** Modo Simulación interactivo")
-            st.caption(
-                "Para activar Gemini en vivo en producción, configura `GEMINI_API_KEY` en los Secrets de Streamlit Cloud."
-            )
-            st.text_input(
-                "Ingresar clave temporal para pruebas:",
-                type="password",
-                key="gemini_api_key_manual",
-                help="Clave para pruebas locales. No se almacena en el repositorio.",
-            )
-
-        st.markdown("---")
         st.subheader("💡 Casos de Prueba Rápida")
-        st.caption("Carga un caso típico en el editor con un solo clic:")
+        st.caption("Selecciona un mensaje predefinido para cargarlo en el editor:")
 
         for nombre_ejemplo, texto_ejemplo in PRESET_MESSAGES.items():
             if st.button(nombre_ejemplo, use_container_width=True):
                 st.session_state["mensaje_input"] = texto_ejemplo
 
         st.markdown("---")
-        st.subheader("📌 Acerca del Proyecto")
+        st.subheader("📌 Acerca del Sistema")
         st.markdown(
-            "Herramienta de atención inteligente para talleres unipersonales de reparación de celulares. "
-            "Clasifica prioridades, detecta fallas y redacta respuestas profesionales en segundos."
+            "Módulo de triaje y respuesta inmediata para talleres de reparación de celulares. "
+            "Procesamiento impulsado exclusivamente por **Google Gemini 2.5 Flash**."
         )
 
 def main() -> None:
     configurar_pagina()
-    clave_activa = resolver_api_key_gemini()
-    renderizar_barra_lateral(clave_activa)
+    renderizar_barra_lateral()
 
     st.title("🛠️ Asistente de Mensajes para Taller · Clasificador PyME")
     st.markdown(
-        "Pega el texto del mensaje recibido en WhatsApp para clasificar su urgencia, "
-        "obtener un resumen técnico y generar un borrador de respuesta al instante."
+        "Pega el texto de un mensaje recibido en WhatsApp para clasificar su urgencia operativa, "
+        "extraer detalles técnicos y generar una respuesta profesional en tiempo real."
     )
 
     if "mensaje_input" not in st.session_state:
@@ -253,42 +187,51 @@ def main() -> None:
             st.rerun()
 
     if boton_analizar:
-        if not mensaje_actual.strip():
-            st.warning("⚠️ Por favor pega o escribe el texto de un mensaje antes de presionar Clasificar.")
+        texto_a_evaluar = mensaje_actual.strip()
+
+        if not texto_a_evaluar:
+            st.warning("⚠️ El campo está vacío. Pega o escribe un mensaje antes de presionar Clasificar.")
             return
 
-        resultado: Optional[ResultadoClasificacion] = None
+        if not validar_coherencia_minima(texto_a_evaluar):
+            st.error("⚠️ **Mensaje no interpretable:** El texto ingresado no contiene palabras o frases comprensibles. Por favor, introduce una consulta legítima de WhatsApp.")
+            return
 
-        if clave_activa and GENAI_DISPONIBLE:
-            try:
-                with st.spinner("🤖 Procesando mensaje con Google Gemini 2.5 Flash..."):
-                    resultado = clasificar_con_gemini_api(mensaje_actual, clave_activa)
-            except APIError as error_api:
-                detalle_error = str(error_api)
-                if "RESOURCE_EXHAUSTED" in detalle_error or "429" in detalle_error or error_api.code == 429:
-                    st.error(
-                        "⏳ **Límite de cuota gratuita alcanzado (429 / ResourceExhausted):** "
-                        "Se ha excedido el límite de peticiones por minuto de Gemini. Por favor espera 60 segundos antes de reintentar."
-                    )
-                elif "API_KEY_INVALID" in detalle_error or "400" in detalle_error or error_api.code == 400:
-                    st.error(
-                        "🔑 **Error de Clave de API:** La clave GEMINI_API_KEY no es válida o no tiene permisos en Google AI Studio. "
-                        "Verifica su configuración en los secretos de la plataforma."
-                    )
-                else:
-                    st.error(f"⚠️ **Error en la API de Gemini:** {detalle_error}")
-                return
-            except json.JSONDecodeError:
-                st.error("⚠️ **Error de formato:** La respuesta de la IA no pudo procesarse como JSON estructurado. Por favor intenta nuevamente.")
-                return
-            except Exception as error_general:
-                st.error(f"📡 **Error de comunicación o red con el servicio de IA:** {error_general}")
-                return
-        else:
-            with st.spinner("Procesando mensaje con motor de simulación..."):
-                resultado = simular_clasificacion_mensaje(mensaje_actual)
+        clave_api = obtener_clave_gemini()
+        if not clave_api:
+            st.error(
+                "🔒 **Servicio no configurado:** No se detectó la clave de API `GEMINI_API_KEY`. "
+                "Para procesar mensajes en vivo, debes registrar el secreto en el panel de Streamlit Cloud "
+                "o en tu entorno local."
+            )
+            return
 
-        if not resultado:
+        if not GENAI_DISPONIBLE:
+            st.error("❌ **Dependencia faltante:** El SDK `google-genai` no está instalado en este entorno.")
+            return
+
+        try:
+            with st.spinner("🤖 Analizando mensaje con Google Gemini 2.5 Flash..."):
+                resultado = ejecutar_clasificacion_gemini(texto_a_evaluar, clave_api)
+        except APIError as error_api:
+            detalle = str(error_api)
+            if "RESOURCE_EXHAUSTED" in detalle or "429" in detalle or getattr(error_api, "code", None) == 429:
+                st.error("⏳ **Límite de cuota alcanzado (429):** El servicio de Gemini ha recibido demasiadas peticiones por minuto. Espera 60 segundos antes de reenviar.")
+            elif "API_KEY_INVALID" in detalle or "400" in detalle or getattr(error_api, "code", None) == 400:
+                st.error("🔑 **Clave no válida:** La clave de API configurada fue rechazada por Google AI Studio. Verifica tus credenciales.")
+            else:
+                st.error(f"⚠️ **Error en servicio de IA:** {detalle}")
+            return
+        except json.JSONDecodeError:
+            st.error("⚠️ **Fallo de deserialización:** La IA no generó una respuesta JSON válida. Intenta de nuevo.")
+            return
+        except Exception as error_general:
+            st.error(f"📡 **Error inesperado de comunicación:** {error_general}")
+            return
+
+        if resultado["categoria"] == "No Interpretable":
+            st.warning("⚠️ **Mensaje no concluyente:** La IA determinó que el texto no contiene una consulta técnica o comercial reconocible.")
+            st.info(f"**Borrador sugerido:** {resultado['borrador_respuesta']}")
             return
 
         st.markdown("---")
