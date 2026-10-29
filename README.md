@@ -13,15 +13,13 @@
 
 ---
 
-## 📋 Estado del Proyecto: Versión 0 (Semana 2)
-Esta versión contiene la interfaz completa en Streamlit con lógica simulada (*mock*) para validar el flujo de usuario y la experiencia visual antes de la integración con la API de Google Gemini en la Semana 3.
-
-### Funcionalidades:
+## 📋 Estado del Proyecto: Semana 3 (Integración de la IA)
+La aplicación cuenta con la integración completa de la API oficial de **Google Gemini (`gemini-2.5-flash`)** mediante el SDK `google-genai`:
+- **Inferencia en tiempo real:** Clasificación de urgencia y categoría con salidas estructuradas en JSON nativo (`response_mime_type="application/json"`).
+- **Manejo resiliente de errores:** Detección y tratamiento controlado de saturación de cuota (`ResourceExhausted` / 429), fallos de red y validación de formatos.
+- **Motor con fallback defensivo:** Si no se detecta la clave de API, el sistema mantiene el modo interactivo de simulación para garantizar que la app nunca falle ante un usuario o evaluador.
+- **Seguridad:** La clave se lee exclusivamente de `st.secrets["GEMINI_API_KEY"]` en Streamlit Community Cloud.
 - **Carga de casos rápidos:** Botones laterales para probar garantías críticas, cotizaciones, estatus de reparación y casos ambiguos sin teclear.
-- **Detección de Urgencia:** Clasificación visual inmediata (🔴 Alta/Garantía Crítica, 🟡 Media, 🟢 Baja).
-- **Extracción operativa:** Identificación de dispositivo y falla reportada.
-- **Borrador listo para WhatsApp:** Cuadro de texto de copia rápida con un clic.
-- **Validación de entradas:** Alerta ante campos vacíos o sin texto.
 
 ---
 
@@ -47,5 +45,5 @@ Esta versión contiene la interfaz completa en Streamlit con lógica simulada (*
 
 ## 🔒 Seguridad y Privacidad
 - Este repositorio no contiene claves de API ni credenciales sensibles.
-- En la fase de integración (Semana 3), la clave de Google Gemini se manejará exclusivamente mediante variables de entorno en Streamlit Secrets (`st.secrets["GEMINI_API_KEY"]`).
+- La clave de Google Gemini se maneja exclusivamente mediante variables de entorno en Streamlit Secrets (`st.secrets["GEMINI_API_KEY"]`).
 - Todos los mensajes de prueba y ejemplos son sintéticos y ficticios.
