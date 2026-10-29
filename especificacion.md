@@ -1,4 +1,4 @@
-# Especificación Técnica · TriageFix (Triaje Inteligente de Mensajes de Taller)
+# Especificación Técnica · Asistente de Mensajes para Taller (Clasificador PyME)
 
 ## 1. Problema y Usuario
 
@@ -31,7 +31,7 @@ El técnico recibe decenas de mensajes informales de clientes por WhatsApp a lo 
 2. **Carga rápida de ejemplos:** Botones preconfigurados con casos típicos de taller para pruebas ágiles sin necesidad de escribir.
 
 ### 2.2 Funcionalidades
-1. **Triaje y Clasificación de Urgencia:** Asignación de nivel de prioridad:
+1. **Clasificación de Urgencia y Prioridad:** Asignación de nivel de prioridad:
    - `ALTA / GARANTÍA CRÍTICA`: Reclamos por trabajos previos defectuosos, clientes molestos o equipos bloqueados por reparaciones del taller.
    - `MEDIA`: Cotizaciones con intención clara de reparación y consultas de estatus de equipos ya ingresados.
    - `BAJA`: Preguntas informativas generales, consultas de horarios o mensajes ambiguos.
@@ -78,7 +78,7 @@ Estructura de datos mostrada en pantalla:
 ### System Prompt Base para Gemini 2.5 Flash
 ```text
 Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.
-Tu trabajo es analizar el mensaje crudo enviado por un cliente por WhatsApp y generar un triaje operativo estructurado.
+Tu trabajo es analizar el mensaje crudo enviado por un cliente por WhatsApp y generar una clasificación operativa estructurada.
 
 Debes responder estrictamente en formato JSON con la siguiente estructura:
 {
@@ -108,7 +108,7 @@ Reglas obligatorias:
    - *Desventajas:* No genera el borrador de respuesta ni extrae entidades estructuradas (marca, modelo, cita) sin un modelo generativo adicional. En Streamlit Cloud, alojar los pesos en local excede el límite de 1 GB de RAM (error Out Of Memory), y consumir la Inference API gratuita genera *cold starts* (error HTTP 503 con demoras de 20-30s).
 2. **Opción B · Sistema RAG (Retrieval-Augmented Generation):**
    - *Rol:* Búsqueda semántica contra manuales de servicio o lista estática de precios.
-   - *Desventajas:* Introduce una base vectorial (Chroma/FAISS) innecesaria para un problema centrado en interpretar mensajes informales y triaje rápido.
+   - *Desventajas:* Introduce una base vectorial (Chroma/FAISS) innecesaria para un problema centrado en interpretar mensajes informales y clasificar incidencias rápidamente.
 3. **Opción C · API de Google Gemini (`gemini-2.5-flash`) mediante SDK `google-genai` (Opción Seleccionada):**
    - *Rol:* Clasificación zero-shot, extracción contextual de entidades y redacción en una única llamada unificada.
    - *Ventajas:* Latencia ultrabaja (<600 ms), cuota gratuita holgada en Google AI Studio, peso pluma en RAM para Streamlit Cloud, y soporte nativo de *Structured Outputs* (garantía de JSON válido bajo esquema estricto).

@@ -5,7 +5,7 @@ Este archivo sirve como memoria y guía técnica permanente para cualquier agent
 ---
 
 ## 1. Misión del Proyecto
-Construir y desplegar **TriageFix**, una aplicación web minimalista y robusta en Streamlit para el triaje y clasificación de mensajes de WhatsApp en un taller de reparación de celulares.
+Construir y desplegar **Asistente de Mensajes para Taller · Clasificador PyME**, una aplicación web minimalista y robusta en Streamlit para la clasificación de mensajes y atención de clientes por WhatsApp en un taller de reparación de celulares.
 
 ---
 

@@ -1,7 +1,7 @@
 import streamlit as st
 from typing import TypedDict
 
-class TriageResult(TypedDict):
+class ResultadoClasificacion(TypedDict):
     urgencia: str
     urgencia_color: str
     categoria: str
@@ -29,7 +29,7 @@ PRESET_MESSAGES: dict[str, str] = {
     ),
 }
 
-def simular_triaje_mensaje(mensaje_texto: str) -> TriageResult:
+def simular_clasificacion_mensaje(mensaje_texto: str) -> ResultadoClasificacion:
     texto_minusculas = mensaje_texto.lower()
 
     if any(palabra in texto_minusculas for palabra in ["garantía", "garantia", "ayer", "no responde", "touch", "falló", "peor"]):
@@ -41,8 +41,8 @@ def simular_triaje_mensaje(mensaje_texto: str) -> TriageResult:
             "falla_reportada": "Falla táctil tras reparación previa (zona inferior no responde)",
             "accion_recomendada": "Revisión inmediata sin costo. Dar prioridad en mesa de trabajo.",
             "borrador_respuesta": (
-                "¡Hola! Lamento mucho el inconveniente con tu iPhone 11. En Taller Móvil todos nuestros "
-                "trabajos cuentan con garantía total. Por favor tráelo de inmediato al taller hoy mismo; "
+                "¡Hola! Lamento mucho el inconveniente con tu iPhone 11. En nuestro taller todos nuestros "
+                "trabajos cuentan con garantía total. Por favor tráelo de inmediato hoy mismo; "
                 "le daremos prioridad inmediata en mesa para revisarlo y dejarlo al 100%. Te esperamos."
             ),
         }
@@ -85,7 +85,7 @@ def simular_triaje_mensaje(mensaje_texto: str) -> TriageResult:
         "falla_reportada": "Solicitud general de información de servicios",
         "accion_recomendada": "Solicitar marca, modelo y falla específica para dar diagnóstico preliminar.",
         "borrador_respuesta": (
-            "¡Hola! Gracias por comunicarte con Taller Móvil. Sí, reparamos dispositivos de todas las "
+            "¡Hola! Gracias por comunicarte con nuestro taller. Sí, reparamos dispositivos de todas las "
             "marcas principales (pantallas, baterías, centros de carga y fallas de placa). ¿Qué modelo "
             "de equipo tienes y qué falla presenta para orientarte mejor?"
         ),
@@ -93,7 +93,7 @@ def simular_triaje_mensaje(mensaje_texto: str) -> TriageResult:
 
 def configurar_pagina() -> None:
     st.set_page_config(
-        page_title="TriageFix · Taller Móvil",
+        page_title="Asistente para Taller · Clasificador PyME",
         page_icon="🛠️",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -101,14 +101,14 @@ def configurar_pagina() -> None:
 
 def renderizar_barra_lateral() -> None:
     with st.sidebar:
-        st.header("🛠️ TriageFix")
-        st.caption("Asistente Operativo de Triaje para WhatsApp")
+        st.header("🛠️ Asistente para Taller")
+        st.caption("Clasificador PyME · WhatsApp")
         st.markdown("---")
 
         st.subheader("📌 Acerca del Proyecto")
         st.markdown(
-            "Herramienta de triaje con IA diseñada para talleres unipersonales de reparación. "
-            "Permite clasificar urgencias, resumir fallas operativas y redactar respuestas profesionales en segundos."
+            "Herramienta inteligente de apoyo para talleres unipersonales de reparación de celulares. "
+            "Permite clasificar urgencias, resumir fallas técnicas y redactar respuestas profesionales en segundos."
         )
 
         st.markdown("---")
@@ -126,10 +126,10 @@ def main() -> None:
     configurar_pagina()
     renderizar_barra_lateral()
 
-    st.title("🛠️ TriageFix · Triaje de Mensajes de Clientes")
+    st.title("🛠️ Asistente de Mensajes para Taller · Clasificador PyME")
     st.markdown(
         "Pega el texto del mensaje recibido en WhatsApp para clasificar su urgencia, "
-        "obtener un resumen operativo y generar un borrador de respuesta al instante."
+        "obtener un resumen técnico y generar un borrador de respuesta al instante."
     )
 
     if "mensaje_input" not in st.session_state:
@@ -144,7 +144,7 @@ def main() -> None:
 
     columna_analizar, columna_limpiar = st.columns([1, 4])
     with columna_analizar:
-        boton_analizar = st.button("⚡ Analizar Mensaje", type="primary", use_container_width=True)
+        boton_analizar = st.button("⚡ Clasificar Mensaje", type="primary", use_container_width=True)
     with columna_limpiar:
         if st.button("🗑️ Limpiar", use_container_width=False):
             st.session_state["mensaje_input"] = ""
@@ -152,14 +152,14 @@ def main() -> None:
 
     if boton_analizar:
         if not mensaje_actual.strip():
-            st.warning("⚠️ Por favor pega o escribe el texto de un mensaje antes de presionar Analizar.")
+            st.warning("⚠️ Por favor pega o escribe el texto de un mensaje antes de presionar Clasificar.")
             return
 
-        with st.spinner("Realizando triaje operativo..."):
-            resultado = simular_triaje_mensaje(mensaje_actual)
+        with st.spinner("Analizando y clasificando mensaje..."):
+            resultado = simular_clasificacion_mensaje(mensaje_actual)
 
         st.markdown("---")
-        st.subheader("📋 Resultado del Triaje")
+        st.subheader("📋 Resultado de la Clasificación")
 
         col1, col2 = st.columns(2)
 
