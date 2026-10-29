@@ -199,29 +199,57 @@ def configurar_pagina() -> None:
         initial_sidebar_state="expanded",
     )
 
-def renderizar_barra_lateral() -> float:
+def renderizar_barra_lateral() -> tuple[float, str]:
+    historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
+    conteo_historial = len(historial)
+
     with st.sidebar:
         st.header("🛠️ Asistente de Taller")
         st.caption("Clasificador PyME · WhatsApp")
         st.markdown("---")
 
-        st.subheader("💡 Casos de Prueba Rápida")
-        st.caption("Selecciona un mensaje predefinido para cargarlo en el editor:")
-
-        for nombre_ejemplo, texto_ejemplo in PRESET_MESSAGES.items():
-            if st.button(nombre_ejemplo, use_container_width=True):
-                st.session_state["mensaje_input"] = texto_ejemplo
-
-        st.markdown("---")
-        st.subheader("⚙️ Parámetros del Modelo")
-        temperatura = st.slider(
-            "Creatividad de respuesta (Temperature):",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.2,
-            step=0.1,
-            help="Valores bajos (0.0-0.2) son deterministas y precisos. Valores mayores dan respuestas más creativas y variadas.",
+        st.subheader("🧭 Menú de Vistas")
+        etiqueta_historial = f"📚 Historial ({conteo_historial})"
+        opciones_menu = ["🛠️ Clasificador en Vivo", etiqueta_historial]
+        vista_seleccionada = st.radio(
+            "Selecciona la sección activa:",
+            options=opciones_menu,
+            index=0,
+            label_visibility="collapsed",
         )
+        modo_vista = "clasificador" if "Clasificador" in vista_seleccionada else "historial"
+        st.markdown("---")
+
+        temperatura = 0.2
+        if modo_vista == "clasificador":
+            st.subheader("💡 Casos de Prueba Rápida")
+            st.caption("Carga un mensaje típico para probar el clasificador:")
+
+            for nombre_ejemplo, texto_ejemplo in PRESET_MESSAGES.items():
+                if st.button(nombre_ejemplo, use_container_width=True):
+                    st.session_state["mensaje_input"] = texto_ejemplo
+
+            st.markdown("---")
+            st.subheader("⚙️ Parámetros del Modelo")
+            temperatura = st.slider(
+                "Creatividad de respuesta (Temperature):",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.2,
+                step=0.1,
+                help="Valores bajos (0.0-0.2) son deterministas y precisos. Valores mayores dan respuestas más creativas y variadas.",
+            )
+        else:
+            st.subheader("📊 Resumen de Sesión")
+            criticas = sum(1 for item in historial if "ALTA" in item["urgencia"])
+            latencia_media = (
+                round(sum(item["latencia_segundos"] for item in historial) / conteo_historial, 2)
+                if conteo_historial > 0
+                else 0.0
+            )
+            st.markdown(f"**Mensajes analizados:** {conteo_historial}")
+            st.markdown(f"**Garantías o urgencias:** {criticas}")
+            st.markdown(f"**Latencia promedio:** {latencia_media}s")
 
         st.markdown("---")
         st.subheader("📌 Acerca del Sistema")
@@ -229,7 +257,8 @@ def renderizar_barra_lateral() -> float:
             "Módulo de clasificación y respuesta inmediata para talleres de reparación de celulares. "
             "Procesamiento impulsado exclusivamente por **Google Gemini**."
         )
-        return temperatura
+
+        return temperatura, modo_vista
 
 def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     buffer = io.StringIO()
@@ -250,12 +279,15 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
         escritor.writerow(fila)
     return buffer.getvalue()
 
-def renderizar_historial_sesion() -> None:
-    historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
-    if not historial:
-        return
+def renderizar_vista_historial() -> None:
+    st.title("📚 Historial de Mensajes y Casos Clasificados")
+    st.markdown("Registro operativo de todas las consultas analizadas durante esta sesión de trabajo.")
 
-    st.subheader(f"📚 Historial de Mensajes de la Sesión ({len(historial)})")
+    historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
+
+    if not historial:
+        st.info("ℹ️ No hay registros todavía en esta sesión. Ve a la vista de **Clasificador en Vivo** desde el menú lateral para procesar tus primeros mensajes.")
+        return
 
     col_metrica_total, col_metrica_criticas, col_metrica_latencia = st.columns(3)
     criticas = sum(1 for item in historial if "ALTA" in item["urgencia"])
@@ -268,23 +300,7 @@ def renderizar_historial_sesion() -> None:
     with col_metrica_latencia:
         st.metric("Latencia Promedio", f"{promedio_latencia}s")
 
-    with st.expander("Ver detalle de registros anteriores", expanded=False):
-        for indice, entrada in enumerate(historial):
-            st.markdown(
-                f"**#{len(historial) - indice} · {entrada['timestamp']}** | "
-                f"**{entrada['urgencia']}** | {entrada['categoria']} | *{entrada['dispositivo']}* "
-                f"*(⚡ {entrada['latencia_segundos']}s)*"
-            )
-            st.caption(f"Mensaje original: {entrada['mensaje_original']}")
-            st.markdown(f"**Acción recomendada:** {entrada['accion_recomendada']}")
-            st.text_area(
-                f"Borrador registrado #{len(historial) - indice}",
-                value=entrada["borrador_respuesta"],
-                height=90,
-                key=f"historial_borrador_{indice}",
-                disabled=True,
-            )
-            st.divider()
+    st.markdown("---")
 
     col_descargar, col_vaciar = st.columns([2, 5])
     with col_descargar:
@@ -301,24 +317,36 @@ def renderizar_historial_sesion() -> None:
             st.session_state["historial_mensajes"] = []
             st.rerun()
 
-def main() -> None:
-    configurar_pagina()
-    temperatura_seleccionada = renderizar_barra_lateral()
+    st.markdown("### 📋 Registro Detallado de Consultas")
+    for indice, entrada in enumerate(historial):
+        with st.container(border=True):
+            col_encabezado_izq, col_encabezado_der = st.columns([4, 1])
+            with col_encabezado_izq:
+                st.markdown(
+                    f"**Caso #{len(historial) - indice}** · Hora: `{entrada['timestamp']}` | "
+                    f"**{entrada['urgencia']}** | {entrada['categoria']} | *{entrada['dispositivo']}*"
+                )
+            with col_encabezado_der:
+                st.caption(f"⚡ {entrada['latencia_segundos']}s")
 
+            st.markdown(f"**Mensaje original:** *\"{entrada['mensaje_original']}\"*")
+            st.markdown(f"**Falla reportada:** {entrada['falla_reportada']}")
+            st.markdown(f"**Acción recomendada en taller:** {entrada['accion_recomendada']}")
+
+            st.text_area(
+                label=f"Borrador emitido (Caso #{len(historial) - indice})",
+                value=entrada["borrador_respuesta"],
+                height=90,
+                key=f"historial_borrador_{indice}",
+                disabled=True,
+            )
+
+def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
     st.title("🛠️ Asistente de Mensajes para Taller · Clasificador PyME")
     st.markdown(
         "Pega el texto de un mensaje recibido en WhatsApp para clasificar su urgencia operativa, "
         "extraer detalles técnicos y generar una respuesta profesional en tiempo real."
     )
-
-    if "mensaje_input" not in st.session_state:
-        st.session_state["mensaje_input"] = ""
-
-    if "resultado_actual" not in st.session_state:
-        st.session_state["resultado_actual"] = None
-
-    if "historial_mensajes" not in st.session_state:
-        st.session_state["historial_mensajes"] = []
 
     mensaje_actual = st.text_area(
         label="💬 Mensaje recibido del cliente:",
@@ -447,8 +475,24 @@ def main() -> None:
                 key="borrador_respuesta_whatsapp",
             )
 
-    st.markdown("---")
-    renderizar_historial_sesion()
+def main() -> None:
+    configurar_pagina()
+
+    if "mensaje_input" not in st.session_state:
+        st.session_state["mensaje_input"] = ""
+
+    if "resultado_actual" not in st.session_state:
+        st.session_state["resultado_actual"] = None
+
+    if "historial_mensajes" not in st.session_state:
+        st.session_state["historial_mensajes"] = []
+
+    temperatura_seleccionada, modo_vista = renderizar_barra_lateral()
+
+    if modo_vista == "historial":
+        renderizar_vista_historial()
+    else:
+        renderizar_vista_clasificador(temperatura_seleccionada)
 
 if __name__ == "__main__":
     main()
