@@ -28,6 +28,8 @@ class ResultadoClasificacion(TypedDict):
     latencia_segundos: float
     cliente_nombre: str
     cliente_telefono: str
+    nivel_thinking: str
+    tokens_limite: int
 
 class RegistroHistorial(TypedDict):
     timestamp: str
@@ -41,6 +43,8 @@ class RegistroHistorial(TypedDict):
     accion_recomendada: str
     borrador_respuesta: str
     latencia_segundos: float
+    nivel_thinking: str
+    tokens_limite: int
 
 PRESET_MESSAGES: dict[str, str] = {
     "⚠️ Reclamo de Garantía": (
@@ -160,6 +164,8 @@ def ejecutar_clasificacion_gemini(
     mensaje_texto: str,
     clave_api: str,
     temperatura: float = 0.2,
+    nivel_thinking: str = "LOW",
+    limite_tokens: int = 1500,
     nombre_cliente: str = "No especificado",
     telefono_cliente: str = "No registrado",
 ) -> ResultadoClasificacion:
@@ -172,8 +178,8 @@ def ejecutar_clasificacion_gemini(
             system_instruction=PROMPT_SISTEMA_OPERATIVO,
             response_mime_type="application/json",
             temperature=temperatura,
-            max_output_tokens=1500,
-            thinking_config=types.ThinkingConfig(thinking_level="LOW"),
+            max_output_tokens=limite_tokens,
+            thinking_config=types.ThinkingConfig(thinking_level=nivel_thinking),
         )
     except Exception:
         try:
@@ -181,15 +187,15 @@ def ejecutar_clasificacion_gemini(
                 system_instruction=PROMPT_SISTEMA_OPERATIVO,
                 response_mime_type="application/json",
                 temperature=temperatura,
-                max_output_tokens=1500,
-                thinking_config={"thinking_level": "LOW"},
+                max_output_tokens=limite_tokens,
+                thinking_config={"thinking_level": nivel_thinking},
             )
         except Exception:
             configuracion = types.GenerateContentConfig(
                 system_instruction=PROMPT_SISTEMA_OPERATIVO,
                 response_mime_type="application/json",
                 temperature=temperatura,
-                max_output_tokens=1500,
+                max_output_tokens=limite_tokens,
             )
 
     ultimo_error: Optional[Exception] = None
@@ -237,6 +243,8 @@ def ejecutar_clasificacion_gemini(
         "latencia_segundos": latencia_total,
         "cliente_nombre": nombre_cliente,
         "cliente_telefono": telefono_cliente,
+        "nivel_thinking": nivel_thinking,
+        "tokens_limite": limite_tokens,
     }
 
 def configurar_pagina() -> None:
@@ -247,7 +255,7 @@ def configurar_pagina() -> None:
         initial_sidebar_state="expanded",
     )
 
-def renderizar_barra_lateral() -> tuple[float, str]:
+def renderizar_barra_lateral() -> tuple[float, str, int, str]:
     historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
     conteo_historial = len(historial)
 
@@ -269,6 +277,9 @@ def renderizar_barra_lateral() -> tuple[float, str]:
         st.markdown("---")
 
         temperatura = 0.2
+        nivel_thinking = "LOW"
+        limite_tokens = 1500
+
         if modo_vista == "clasificador":
             st.subheader("💡 Casos de Prueba Rápida")
             st.caption("Carga un mensaje típico para probar el clasificador:")
@@ -279,6 +290,7 @@ def renderizar_barra_lateral() -> tuple[float, str]:
 
             st.markdown("---")
             st.subheader("⚙️ Parámetros del Modelo")
+
             temperatura = st.slider(
                 "Creatividad de respuesta (Temperature):",
                 min_value=0.0,
@@ -287,6 +299,29 @@ def renderizar_barra_lateral() -> tuple[float, str]:
                 step=0.1,
                 help="Valores bajos (0.0-0.2) son deterministas y precisos. Valores mayores dan respuestas más creativas y variadas.",
             )
+
+            opcion_thinking = st.select_slider(
+                "Nivel de razonamiento (Thinking):",
+                options=["LOW (Rápido)", "MEDIUM (Equilibrado)", "HIGH (Profundo)"],
+                value="LOW (Rápido)",
+                help="Controla la profundidad del razonamiento interno del modelo. LOW minimiza la latencia para respuestas inmediatas; MEDIUM y HIGH incrementan el análisis pero aumentan el tiempo de espera.",
+            )
+            mapeo_thinking = {
+                "LOW (Rápido)": "LOW",
+                "MEDIUM (Equilibrado)": "MEDIUM",
+                "HIGH (Profundo)": "HIGH",
+            }
+            nivel_thinking = mapeo_thinking[opcion_thinking]
+
+            limite_tokens = st.slider(
+                "Límite máximo de tokens de salida (Tokens):",
+                min_value=1000,
+                max_value=3000,
+                value=1500,
+                step=100,
+                help="Mínimo seguro fijado en 1000 tokens por norma del curso: evita que el razonamiento interno de Gemini agote el cupo y devuelva una respuesta JSON vacía o truncada.",
+            )
+
         else:
             st.subheader("📊 Resumen de Sesión")
             criticas = sum(1 for item in historial if "ALTA" in item["urgencia"])
@@ -306,7 +341,7 @@ def renderizar_barra_lateral() -> tuple[float, str]:
             "Procesamiento impulsado exclusivamente por **Google Gemini**."
         )
 
-        return temperatura, modo_vista
+        return temperatura, nivel_thinking, limite_tokens, modo_vista
 
 def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     buffer = io.StringIO()
@@ -321,6 +356,8 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
         "accion_recomendada",
         "borrador_respuesta",
         "latencia_segundos",
+        "nivel_thinking",
+        "tokens_limite",
         "mensaje_original",
     ]
     escritor = csv.DictWriter(buffer, fieldnames=campos)
@@ -383,13 +420,16 @@ def renderizar_vista_historial() -> None:
             else:
                 identificador = "Cliente no identificado"
 
+            thinking_reg = entrada.get("nivel_thinking", "LOW")
+            tokens_reg = entrada.get("tokens_limite", 1500)
+
             with col_encabezado_izq:
                 st.markdown(
                     f"**Caso #{len(historial) - indice}** · Hora: `{entrada['timestamp']}` | "
                     f"👤 **{identificador}** | **{entrada['urgencia']}** | {entrada['categoria']}"
                 )
             with col_encabezado_der:
-                st.caption(f"⚡ {entrada['latencia_segundos']}s")
+                st.caption(f"⚡ {entrada['latencia_segundos']}s · {thinking_reg} ({tokens_reg}t)")
 
             st.markdown(f"**Dispositivo:** {entrada['dispositivo']} | **Falla reportada:** {entrada['falla_reportada']}")
             st.markdown(f"**Acción recomendada en taller:** {entrada['accion_recomendada']}")
@@ -411,7 +451,11 @@ def renderizar_vista_historial() -> None:
                 key=f"btn_wa_historial_{indice}",
             )
 
-def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
+def renderizar_vista_clasificador(
+    temperatura_seleccionada: float,
+    nivel_thinking_seleccionado: str,
+    limite_tokens_seleccionado: int,
+) -> None:
     st.title("🛠️ Asistente de Mensajes para Taller · Clasificador PyME")
     st.markdown(
         "Pega el texto de un mensaje recibido en WhatsApp para clasificar su urgencia operativa, "
@@ -486,6 +530,8 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
                     mensaje_texto=texto_a_evaluar,
                     clave_api=clave_api,
                     temperatura=temperatura_seleccionada,
+                    nivel_thinking=nivel_thinking_seleccionado,
+                    limite_tokens=limite_tokens_seleccionado,
                     nombre_cliente=nombre_resuelto,
                     telefono_cliente=telefono_resuelto,
                 )
@@ -503,6 +549,8 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
                     "accion_recomendada": resultado["accion_recomendada"],
                     "borrador_respuesta": resultado["borrador_respuesta"],
                     "latencia_segundos": resultado["latencia_segundos"],
+                    "nivel_thinking": resultado["nivel_thinking"],
+                    "tokens_limite": resultado["tokens_limite"],
                 }
                 st.session_state["historial_mensajes"].insert(0, registro_nuevo)
 
@@ -552,7 +600,9 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
             with col_titulo:
                 st.subheader("📋 Resultado de la Clasificación")
             with col_latencia:
-                st.caption(f"⚡ Inferencia: {resultado_activo['latencia_segundos']}s")
+                thinking_usado = resultado_activo.get("nivel_thinking", "LOW")
+                tokens_usados = resultado_activo.get("tokens_limite", 1500)
+                st.caption(f"⚡ Inferencia: {resultado_activo['latencia_segundos']}s · {thinking_usado} ({tokens_usados}t)")
 
             col_urgencia, col_categoria = st.columns(2)
             with col_urgencia:
@@ -621,12 +671,16 @@ def main() -> None:
     if "historial_mensajes" not in st.session_state:
         st.session_state["historial_mensajes"] = []
 
-    temperatura_seleccionada, modo_vista = renderizar_barra_lateral()
+    temperatura_seleccionada, nivel_thinking_seleccionado, limite_tokens_seleccionado, modo_vista = renderizar_barra_lateral()
 
     if modo_vista == "historial":
         renderizar_vista_historial()
     else:
-        renderizar_vista_clasificador(temperatura_seleccionada)
+        renderizar_vista_clasificador(
+            temperatura_seleccionada,
+            nivel_thinking_seleccionado,
+            limite_tokens_seleccionado,
+        )
 
 if __name__ == "__main__":
     main()

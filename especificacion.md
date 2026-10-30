@@ -48,6 +48,7 @@ El técnico recibe decenas de mensajes informales de clientes por WhatsApp a lo 
 5. **Despacho Directo a WhatsApp (Deep Link `wa.me`):** Botón directo que abre la conversación en WhatsApp Web o móvil con el mensaje precargado sin requerir copiar/pegar manual ni APIs de riesgo.
 6. **Historial de Mensajes y Contactos:** Vista dedicada navegable desde el menú lateral (`st.sidebar`) con métricas acumuladas, trazabilidad de clientes (nombre/teléfono) y exportación a CSV.
 7. **Telemetría de Latencia en Vivo:** Registro y visualización del tiempo de respuesta del modelo en segundos.
+8. **Control de Hiperparámetros de Inferencia:** Ajuste interactivo en barra lateral de `temperature` (0.0-1.0), `thinking_level` (LOW, MEDIUM, HIGH) y `max_output_tokens` (1000-3000 con límite inferior blindado en 1000 tokens para evitar truncamiento por razonamiento interno).
 
 ### 2.3 Salidas
 Estructura de datos mostrada en pantalla:
