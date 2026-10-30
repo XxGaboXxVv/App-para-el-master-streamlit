@@ -27,8 +27,10 @@ El técnico recibe decenas de mensajes informales de clientes por WhatsApp a lo 
 ## 2. Entradas, Funcionalidades y Salidas
 
 ### 2.1 Entradas de la Aplicación
-1. **Texto del mensaje:** Cadena de texto sin procesar copiada directamente desde WhatsApp.
-2. **Carga rápida de ejemplos:** Botones preconfigurados con casos típicos de taller para pruebas ágiles sin necesidad de escribir.
+1. **Texto del mensaje:** Cadena de texto copiada directamente desde WhatsApp.
+2. **Nombre del cliente (opcional):** Identificador de la persona; si se omite, se extrae del encabezado copiado o se registra como no especificado.
+3. **Teléfono de WhatsApp (opcional):** Número de contacto con código de país para despacho directo.
+4. **Carga rápida de ejemplos:** Botones preconfigurados con casos típicos de taller para pruebas ágiles sin necesidad de escribir.
 
 ### 2.2 Funcionalidades
 1. **Clasificación de Urgencia y Prioridad:** Asignación de nivel de prioridad:
@@ -41,17 +43,20 @@ El técnico recibe decenas de mensajes informales de clientes por WhatsApp a lo 
    - `Estatus de Dispositivo`
    - `Consulta General`
    - `No Interpretable` (Texto sin sentido, caracteres aleatorios o spam)
-3. **Resumen Operativo:** Ficha sintética con `Dispositivo`, `Falla / Solicitud` y `Acción recomendada`.
-4. **Borrador de Respuesta al Cliente:** Área de texto multilínea interactiva (\st.text_area\) que permite al técnico previsualizar, afinar o personalizar el mensaje antes de enviarlo por WhatsApp.
-5. **Historial de Mensajes de la Sesión:** Almacenamiento dinámico en \st.session_state\ para consultar mensajes previos procesados, métricas agregadas (total de casos, garantías críticas, latencia media) y exportación directa a archivo CSV.
-6. **Telemetría de Latencia en Vivo:** Registro y visualización del tiempo de respuesta del modelo en segundos.
+3. **Resumen Operativo:** Ficha sintética con `Cliente`, `Dispositivo`, `Falla / Solicitud` y `Acción recomendada`.
+4. **Borrador de Respuesta al Cliente:** Área de texto multilínea interactiva (`st.text_area`) para previsualizar y editar el mensaje.
+5. **Despacho Directo a WhatsApp (Deep Link `wa.me`):** Botón directo que abre la conversación en WhatsApp Web o móvil con el mensaje precargado sin requerir copiar/pegar manual ni APIs de riesgo.
+6. **Historial de Mensajes y Contactos:** Vista dedicada navegable desde el menú lateral (`st.sidebar`) con métricas acumuladas, trazabilidad de clientes (nombre/teléfono) y exportación a CSV.
+7. **Telemetría de Latencia en Vivo:** Registro y visualización del tiempo de respuesta del modelo en segundos.
 
 ### 2.3 Salidas
 Estructura de datos mostrada en pantalla:
+- Ficha de Contacto (Nombre y Teléfono).
 - Insignia visual de Urgencia (Rojo, Amarillo, Verde).
 - Etiqueta de Categoría.
 - Tarjeta de Resumen Operativo.
-- Cuadro de texto con botón para copiar la respuesta generada.
+- Borrador editable con botón de enlace directo a WhatsApp (`wa.me`).
+- Historial exportable en CSV con columnas de cliente.
 
 ---
 

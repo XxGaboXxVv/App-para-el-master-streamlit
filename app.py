@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import urllib.parse
 from datetime import datetime
 from typing import Optional, TypedDict
 import streamlit as st
@@ -25,9 +26,13 @@ class ResultadoClasificacion(TypedDict):
     accion_recomendada: str
     borrador_respuesta: str
     latencia_segundos: float
+    cliente_nombre: str
+    cliente_telefono: str
 
 class RegistroHistorial(TypedDict):
     timestamp: str
+    cliente_nombre: str
+    cliente_telefono: str
     mensaje_original: str
     urgencia: str
     categoria: str
@@ -99,6 +104,43 @@ def validar_coherencia_minima(texto: str) -> bool:
 
     return True
 
+def resolver_datos_contacto(
+    texto_mensaje: str, nombre_manual: str, telefono_manual: str
+) -> tuple[str, str]:
+    nombre_limpio = nombre_manual.strip()
+    telefono_limpio = telefono_manual.strip()
+
+    if not nombre_limpio or not telefono_limpio:
+        patron_encabezado_whatsapp = (
+            r"\[?\d{1,2}:\d{2}(?::\d{2})?(?:\s?[apAP]\.?[mM]\.?)?,?\s?\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\]?\s*([^:]+):"
+        )
+        coincidencia = re.search(patron_encabezado_whatsapp, texto_mensaje)
+        if coincidencia:
+            remitente_detectado = coincidencia.group(1).strip()
+            if not telefono_limpio and re.search(r"\+?\d[\d\s-]{7,}\d", remitente_detectado):
+                telefono_limpio = remitente_detectado
+            elif not nombre_limpio:
+                nombre_limpio = remitente_detectado
+
+    if not telefono_limpio:
+        coincidencia_tel = re.search(
+            r"(\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4})", texto_mensaje
+        )
+        if coincidencia_tel:
+            telefono_limpio = coincidencia_tel.group(1).strip()
+
+    nombre_final = nombre_limpio if nombre_limpio else "No especificado"
+    telefono_final = telefono_limpio if telefono_limpio else "No registrado"
+
+    return nombre_final, telefono_final
+
+def construir_enlace_whatsapp(telefono: str, texto_respuesta: str) -> str:
+    digitos_telefono = re.sub(r"[^\d]", "", telefono)
+    texto_codificado = urllib.parse.quote(texto_respuesta)
+    if len(digitos_telefono) >= 7:
+        return f"https://wa.me/{digitos_telefono}?text={texto_codificado}"
+    return f"https://wa.me/?text={texto_codificado}"
+
 def obtener_clave_gemini() -> Optional[str]:
     try:
         if "GEMINI_API_KEY" in st.secrets:
@@ -115,7 +157,11 @@ def obtener_clave_gemini() -> Optional[str]:
     return None
 
 def ejecutar_clasificacion_gemini(
-    mensaje_texto: str, clave_api: str, temperatura: float = 0.2
+    mensaje_texto: str,
+    clave_api: str,
+    temperatura: float = 0.2,
+    nombre_cliente: str = "No especificado",
+    telefono_cliente: str = "No registrado",
 ) -> ResultadoClasificacion:
     tiempo_inicio = time.perf_counter()
     cliente_genai = genai.Client(api_key=clave_api)
@@ -189,6 +235,8 @@ def ejecutar_clasificacion_gemini(
         "accion_recomendada": str(datos_json.get("accion_recomendada", "Revisión en mostrador")),
         "borrador_respuesta": str(datos_json.get("borrador_respuesta", "")),
         "latencia_segundos": latencia_total,
+        "cliente_nombre": nombre_cliente,
+        "cliente_telefono": telefono_cliente,
     }
 
 def configurar_pagina() -> None:
@@ -264,6 +312,8 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     buffer = io.StringIO()
     campos = [
         "timestamp",
+        "cliente_nombre",
+        "cliente_telefono",
         "urgencia",
         "categoria",
         "dispositivo",
@@ -321,17 +371,29 @@ def renderizar_vista_historial() -> None:
     for indice, entrada in enumerate(historial):
         with st.container(border=True):
             col_encabezado_izq, col_encabezado_der = st.columns([4, 1])
+
+            nombre = entrada["cliente_nombre"]
+            telefono = entrada["cliente_telefono"]
+            if nombre != "No especificado" and telefono != "No registrado":
+                identificador = f"{nombre} ({telefono})"
+            elif telefono != "No registrado":
+                identificador = f"Tel: {telefono}"
+            elif nombre != "No especificado":
+                identificador = nombre
+            else:
+                identificador = "Cliente no identificado"
+
             with col_encabezado_izq:
                 st.markdown(
                     f"**Caso #{len(historial) - indice}** · Hora: `{entrada['timestamp']}` | "
-                    f"**{entrada['urgencia']}** | {entrada['categoria']} | *{entrada['dispositivo']}*"
+                    f"👤 **{identificador}** | **{entrada['urgencia']}** | {entrada['categoria']}"
                 )
             with col_encabezado_der:
                 st.caption(f"⚡ {entrada['latencia_segundos']}s")
 
-            st.markdown(f"**Mensaje original:** *\"{entrada['mensaje_original']}\"*")
-            st.markdown(f"**Falla reportada:** {entrada['falla_reportada']}")
+            st.markdown(f"**Dispositivo:** {entrada['dispositivo']} | **Falla reportada:** {entrada['falla_reportada']}")
             st.markdown(f"**Acción recomendada en taller:** {entrada['accion_recomendada']}")
+            st.caption(f"Mensaje recibido: \"{entrada['mensaje_original']}\"")
 
             st.text_area(
                 label=f"Borrador emitido (Caso #{len(historial) - indice})",
@@ -341,12 +403,36 @@ def renderizar_vista_historial() -> None:
                 disabled=True,
             )
 
+            enlace_wa = construir_enlace_whatsapp(telefono, entrada["borrador_respuesta"])
+            st.link_button(
+                label="📲 Reabrir en WhatsApp",
+                url=enlace_wa,
+                use_container_width=False,
+                key=f"btn_wa_historial_{indice}",
+            )
+
 def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
     st.title("🛠️ Asistente de Mensajes para Taller · Clasificador PyME")
     st.markdown(
         "Pega el texto de un mensaje recibido en WhatsApp para clasificar su urgencia operativa, "
         "extraer detalles técnicos y generar una respuesta profesional en tiempo real."
     )
+
+    col_nombre, col_telefono = st.columns(2)
+    with col_nombre:
+        nombre_ingresado = st.text_input(
+            "👤 Nombre del cliente (opcional):",
+            value=st.session_state.get("cliente_nombre_input", ""),
+            placeholder="Ej: Juan Pérez",
+            key="cliente_nombre_input",
+        )
+    with col_telefono:
+        telefono_ingresado = st.text_input(
+            "📱 Teléfono de WhatsApp (opcional):",
+            value=st.session_state.get("cliente_telefono_input", ""),
+            placeholder="Ej: +52 55 1234 5678 (con lada)",
+            key="cliente_telefono_input",
+        )
 
     mensaje_actual = st.text_area(
         label="💬 Mensaje recibido del cliente:",
@@ -361,6 +447,8 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
     with columna_limpiar:
         if st.button("🗑️ Limpiar", use_container_width=False):
             st.session_state["mensaje_input"] = ""
+            st.session_state["cliente_nombre_input"] = ""
+            st.session_state["cliente_telefono_input"] = ""
             st.session_state["resultado_actual"] = None
             st.rerun()
 
@@ -388,15 +476,25 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
             st.error("❌ **Dependencia faltante:** El SDK `google-genai` no está instalado en este entorno.")
             return
 
+        nombre_resuelto, telefono_resuelto = resolver_datos_contacto(
+            texto_a_evaluar, nombre_ingresado, telefono_ingresado
+        )
+
         try:
             with st.spinner("🤖 Analizando mensaje con Google Gemini..."):
                 resultado = ejecutar_clasificacion_gemini(
-                    texto_a_evaluar, clave_api, temperatura=temperatura_seleccionada
+                    mensaje_texto=texto_a_evaluar,
+                    clave_api=clave_api,
+                    temperatura=temperatura_seleccionada,
+                    nombre_cliente=nombre_resuelto,
+                    telefono_cliente=telefono_resuelto,
                 )
                 st.session_state["resultado_actual"] = resultado
 
                 registro_nuevo: RegistroHistorial = {
                     "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "cliente_nombre": nombre_resuelto,
+                    "cliente_telefono": telefono_resuelto,
                     "mensaje_original": texto_a_evaluar,
                     "urgencia": resultado["urgencia"],
                     "categoria": resultado["categoria"],
@@ -431,12 +529,22 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
         if resultado_activo["categoria"] == "No Interpretable":
             st.warning("⚠️ **Mensaje no concluyente:** La IA determinó que el texto no contiene una consulta técnica o comercial reconocible.")
             st.caption("Borrador sugerido para pedir aclaración:")
-            st.text_area(
+            borrador_aclaracion = st.text_area(
                 label="Borrador editable de aclaración",
                 value=resultado_activo["borrador_respuesta"],
                 height=100,
                 label_visibility="collapsed",
                 key="borrador_no_interpretable",
+            )
+            enlace_aclaracion = construir_enlace_whatsapp(
+                resultado_activo.get("cliente_telefono", "No registrado"),
+                borrador_aclaracion,
+            )
+            st.link_button(
+                label="📲 Abrir y Enviar en WhatsApp",
+                url=enlace_aclaracion,
+                type="primary",
+                use_container_width=False,
             )
         else:
             st.markdown("---")
@@ -458,16 +566,19 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
             with col_categoria:
                 st.success(f"**Categoría:** {resultado_activo['categoria']}")
 
-            col_resumen, col_accion = st.columns(2)
-            with col_resumen:
-                st.markdown(f"**📱 Dispositivo identificado:** {resultado_activo['dispositivo']}")
+            col_cliente, col_dispositivo = st.columns(2)
+            with col_cliente:
+                cliente_nom = resultado_activo.get("cliente_nombre", "No especificado")
+                cliente_tel = resultado_activo.get("cliente_telefono", "No registrado")
+                st.markdown(f"**👤 Cliente:** {cliente_nom} | **Tel:** {cliente_tel}")
                 st.markdown(f"**⚠️ Falla reportada:** {resultado_activo['falla_reportada']}")
-            with col_accion:
+            with col_dispositivo:
+                st.markdown(f"**📱 Dispositivo identificado:** {resultado_activo['dispositivo']}")
                 st.markdown(f"**🎯 Acción recomendada en taller:** {resultado_activo['accion_recomendada']}")
 
             st.markdown("### ✍️ Borrador de Respuesta para WhatsApp")
-            st.caption("Puedes previsualizar, editar o copiar directamente el texto para responder al cliente:")
-            st.text_area(
+            st.caption("Puedes previsualizar, editar o pulsar directamente para abrir la conversación en WhatsApp:")
+            borrador_actualizado = st.text_area(
                 label="Borrador de respuesta editable",
                 value=resultado_activo["borrador_respuesta"],
                 height=130,
@@ -475,11 +586,34 @@ def renderizar_vista_clasificador(temperatura_seleccionada: float) -> None:
                 key="borrador_respuesta_whatsapp",
             )
 
+            telefono_destino = resultado_activo.get("cliente_telefono", "No registrado")
+            enlace_wa = construir_enlace_whatsapp(telefono_destino, borrador_actualizado)
+
+            col_btn_wa, col_nota_wa = st.columns([1, 2])
+            with col_btn_wa:
+                st.link_button(
+                    label="📲 Abrir y Enviar en WhatsApp",
+                    url=enlace_wa,
+                    type="primary",
+                    use_container_width=True,
+                )
+            with col_nota_wa:
+                if telefono_destino != "No registrado":
+                    st.caption(f"Abre WhatsApp con el chat de **{telefono_destino}** y la respuesta precargada.")
+                else:
+                    st.caption("Abre WhatsApp para que elijas a cuál cliente enviar la respuesta precargada.")
+
 def main() -> None:
     configurar_pagina()
 
     if "mensaje_input" not in st.session_state:
         st.session_state["mensaje_input"] = ""
+
+    if "cliente_nombre_input" not in st.session_state:
+        st.session_state["cliente_nombre_input"] = ""
+
+    if "cliente_telefono_input" not in st.session_state:
+        st.session_state["cliente_telefono_input"] = ""
 
     if "resultado_actual" not in st.session_state:
         st.session_state["resultado_actual"] = None
