@@ -1377,7 +1377,7 @@ def renderizar_modo_ia(
         if "cache_consultas_ia" not in st.session_state:
             st.session_state["cache_consultas_ia"] = {}
 
-        clave_cache = f"{texto_a_evaluar.strip()}_{nivel_thinking_seleccionado}_{temperatura_seleccionada}"
+        clave_cache = f"{texto_a_evaluar.strip()}_{modelo_seleccionado}_{nivel_thinking_seleccionado}_{temperatura_seleccionada}"
 
         if clave_cache in st.session_state["cache_consultas_ia"]:
             resultado_cached = st.session_state["cache_consultas_ia"][clave_cache]
