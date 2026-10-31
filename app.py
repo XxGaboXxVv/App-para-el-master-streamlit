@@ -1102,6 +1102,9 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             "📋 Checklist de Recepción",
             "📚 Registro Histórico",
         ]
+        if "pending_modulo_seleccionado" in st.session_state:
+            st.session_state["radio_modulo_seleccionado"] = st.session_state.pop("pending_modulo_seleccionado")
+
         if "radio_modulo_seleccionado" not in st.session_state:
             st.session_state["radio_modulo_seleccionado"] = opciones_menu[0]
 
@@ -1741,21 +1744,21 @@ def renderizar_modo_ia(
                     st.rerun()
             with col_act3:
                 if st.button("🧮 Cotizar en Calculadora", use_container_width=True, key="btn_llevar_calculadora"):
-                    st.session_state["calc_equipo"] = resultado_activo.get("dispositivo", "")
-                    st.session_state["calc_concepto"] = resultado_activo.get("falla_reportada", "")
+                    st.session_state["pending_calc_equipo"] = resultado_activo.get("dispositivo", "")
+                    st.session_state["pending_calc_concepto"] = resultado_activo.get("falla_reportada", "")
                     tel_val = resultado_activo.get("cliente_telefono", "")
-                    st.session_state["calc_tel"] = tel_val if tel_val != "No registrado" else ""
-                    st.session_state["radio_modulo_seleccionado"] = "🧮 Calculadora de Cotizaciones"
+                    st.session_state["pending_calc_tel"] = tel_val if tel_val != "No registrado" else ""
+                    st.session_state["pending_modulo_seleccionado"] = "🧮 Calculadora de Cotizaciones"
                     st.rerun()
             with col_act4:
                 if st.button("📋 Abrir Checklist", use_container_width=True, key="btn_abrir_checklist"):
                     nom_val = resultado_activo.get("cliente_nombre", "")
-                    st.session_state["ch_cliente"] = nom_val if nom_val != "No especificado" else ""
+                    st.session_state["pending_ch_cliente"] = nom_val if nom_val != "No especificado" else ""
                     dev_val = resultado_activo.get("dispositivo", "")
-                    st.session_state["ch_equipo"] = dev_val if dev_val != "No identificable" else ""
+                    st.session_state["pending_ch_equipo"] = dev_val if dev_val != "No identificable" else ""
                     tel_val = resultado_activo.get("cliente_telefono", "")
-                    st.session_state["ch_tel"] = tel_val if tel_val != "No registrado" else ""
-                    st.session_state["radio_modulo_seleccionado"] = "📋 Checklist de Recepción"
+                    st.session_state["pending_ch_tel"] = tel_val if tel_val != "No registrado" else ""
+                    st.session_state["pending_modulo_seleccionado"] = "📋 Checklist de Recepción"
                     st.rerun()
 
             if st.session_state.get("mostrar_bloque_copia", False):
@@ -1925,6 +1928,18 @@ def renderizar_vista_tarifario() -> None:
                 st.markdown(f"🛡️ `{s['garantia']}`")
 
 def renderizar_vista_calculadora() -> None:
+    if "pending_calc_equipo" in st.session_state:
+        st.session_state["calc_equipo"] = st.session_state.pop("pending_calc_equipo")
+    if "pending_calc_concepto" in st.session_state:
+        st.session_state["calc_concepto"] = st.session_state.pop("pending_calc_concepto")
+    if "pending_calc_tel" in st.session_state:
+        st.session_state["calc_tel"] = st.session_state.pop("pending_calc_tel")
+
+    if "calc_equipo" not in st.session_state:
+        st.session_state["calc_equipo"] = "Samsung Galaxy A54"
+    if "calc_concepto" not in st.session_state:
+        st.session_state["calc_concepto"] = "Cambio de pantalla display original"
+
     renderizar_encabezado_principal()
 
     st.subheader("🧮 Calculadora de Presupuestos y Cotizaciones")
@@ -1961,9 +1976,9 @@ def renderizar_vista_calculadora() -> None:
 
     col_eq, col_conc = st.columns(2)
     with col_eq:
-        dispositivo_cot = st.text_input("Equipo a cotizar:", value="Samsung Galaxy A54", key="calc_equipo")
+        dispositivo_cot = st.text_input("Equipo a cotizar:", key="calc_equipo")
     with col_conc:
-        concepto_cot = st.text_input("Concepto:", value="Cambio de pantalla display original", key="calc_concepto")
+        concepto_cot = st.text_input("Concepto:", key="calc_concepto")
 
     garantia_meses = st.selectbox(
         "Garantía ofrecida:",
@@ -1990,6 +2005,13 @@ def renderizar_vista_calculadora() -> None:
         st.link_button("📲 Enviar Cotización por WhatsApp", url=enlace_cot, type="primary", use_container_width=True)
 
 def renderizar_vista_checklist() -> None:
+    if "pending_ch_cliente" in st.session_state:
+        st.session_state["ch_cliente"] = st.session_state.pop("pending_ch_cliente")
+    if "pending_ch_equipo" in st.session_state:
+        st.session_state["ch_equipo"] = st.session_state.pop("pending_ch_equipo")
+    if "pending_ch_tel" in st.session_state:
+        st.session_state["ch_tel"] = st.session_state.pop("pending_ch_tel")
+
     renderizar_encabezado_principal()
 
     st.subheader("📋 Checklist de Recepción Física de Equipos")
