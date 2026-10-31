@@ -50,6 +50,7 @@ El técnico recibe decenas de mensajes informales de clientes por WhatsApp a lo 
 7. **Telemetría de Latencia en Vivo:** Registro y visualización del tiempo de respuesta del modelo en segundos.
 8. **Control de Hiperparámetros de Inferencia:** Ajuste interactivo en barra lateral de `temperature` (0.0-1.0), `thinking_level` (LOW, MEDIUM, HIGH) y `max_output_tokens` (1000-3000 con límite inferior blindado en 1000 tokens para evitar truncamiento por razonamiento interno).
 9. **Modalidad Dual de Triaje (Human-in-the-Loop):** Pestañas dedicadas para alternar entre clasificación automática con Gemini 3.8 Flash y registro manual de mostrador, permitiendo gestionar clientes presenciales o sin conexión sin depender exclusivamente de la API.
+10. **Gestión Multi-Taller y Acceso con PIN Pad:** Control de turno y sucursal mediante teclado táctil interactivo (estilo terminal POS de taller), con botón de acceso demo inmediato para evaluadores para salvaguardar la disponibilidad operativa.
 
 ### 2.3 Salidas
 Estructura de datos mostrada en pantalla:

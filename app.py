@@ -31,9 +31,11 @@ class ResultadoClasificacion(TypedDict):
     nivel_thinking: str
     tokens_limite: int
     metodo: str
+    taller: str
 
 class RegistroHistorial(TypedDict):
     timestamp: str
+    taller: str
     metodo: str
     cliente_nombre: str
     cliente_telefono: str
@@ -47,6 +49,19 @@ class RegistroHistorial(TypedDict):
     latencia_segundos: float
     nivel_thinking: str
     tokens_limite: int
+
+TALLERES_REGISTRADOS: dict[str, dict[str, str]] = {
+    "Taller Central · FixLab": {
+        "pin": "1234",
+        "direccion": "Av. Principal #450, Centro",
+        "encargado": "Téc. Gabriel Durón",
+    },
+    "Sucursal Norte · Mobile Express": {
+        "pin": "4321",
+        "direccion": "Plaza Norte, Local 12",
+        "encargado": "Téc. Roberto Gómez",
+    },
+}
 
 PRESET_MESSAGES: dict[str, dict[str, str]] = {
     "⚠️ Reclamo de Garantía": {
@@ -189,6 +204,20 @@ ESTILO_CSS_TALLER: str = """
         padding: 1.1rem 1.3rem;
         margin-bottom: 1rem;
     }
+
+    .pin-display {
+        background: #0f172a;
+        border: 2px solid #38bdf8;
+        border-radius: 12px;
+        padding: 1rem;
+        text-align: center;
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: 0.5em;
+        color: #38bdf8;
+        margin-bottom: 1rem;
+        font-family: 'JetBrains Mono', monospace;
+    }
 </style>
 """
 
@@ -270,6 +299,7 @@ def ejecutar_clasificacion_gemini(
     limite_tokens: int = 1500,
     nombre_cliente: str = "No especificado",
     telefono_cliente: str = "No registrado",
+    taller_origen: str = "Taller Central · FixLab",
 ) -> ResultadoClasificacion:
     tiempo_inicio = time.perf_counter()
     cliente_genai = genai.Client(api_key=clave_api)
@@ -348,31 +378,154 @@ def ejecutar_clasificacion_gemini(
         "nivel_thinking": nivel_thinking,
         "tokens_limite": limite_tokens,
         "metodo": "🤖 Gemini 3.8 Flash",
+        "taller": taller_origen,
     }
 
 def configurar_pagina() -> None:
     st.set_page_config(
-        page_title="TallerFix OS · Triaje y WhatsApp",
+        page_title="TallerFix OS · Terminal de Triaje",
         page_icon="🛠️",
         layout="wide",
         initial_sidebar_state="expanded",
     )
 
+def renderizar_pantalla_login_pin() -> None:
+    aplicar_estilos_taller()
+
+    st.markdown(
+        """
+        <div style="max-width: 480px; margin: 2rem auto 1rem auto; text-align: center;">
+            <span class="tag-lab">🔐 CONTROL DE ACCESO</span>
+            <h2 style="margin: 0.5rem 0 0.2rem 0; font-weight: 800;">TallerFix Console</h2>
+            <p style="color: #94a3b8; font-size: 0.9rem;">
+                Selecciona tu taller y digita tu PIN de 4 dígitos para abrir turno de servicio.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_izq, col_centro, col_der = st.columns([1, 2, 1])
+    with col_centro:
+        with st.container(border=True):
+            taller_elegido = st.selectbox(
+                "🏢 Selecciona el Taller / Sucursal:",
+                options=list(TALLERES_REGISTRADOS.keys()),
+                index=0,
+                key="login_taller_selector",
+            )
+            st.session_state["taller_activo"] = taller_elegido
+            datos_taller = TALLERES_REGISTRADOS[taller_elegido]
+
+            st.caption(f"📍 {datos_taller['direccion']} · Encargado: {datos_taller['encargado']}")
+
+            pin_actual = st.session_state.get("pin_buffer", "")
+            simbolos_pin = " ".join(["●" for _ in pin_actual] + ["○" for _ in range(4 - len(pin_actual))])
+
+            st.markdown(f"<div class='pin-display'>{simbolos_pin}</div>", unsafe_allow_html=True)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("1", use_container_width=True, key="pin_1"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "1"
+                        st.rerun()
+            with col2:
+                if st.button("2", use_container_width=True, key="pin_2"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "2"
+                        st.rerun()
+            with col3:
+                if st.button("3", use_container_width=True, key="pin_3"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "3"
+                        st.rerun()
+
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                if st.button("4", use_container_width=True, key="pin_4"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "4"
+                        st.rerun()
+            with col5:
+                if st.button("5", use_container_width=True, key="pin_5"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "5"
+                        st.rerun()
+            with col6:
+                if st.button("6", use_container_width=True, key="pin_6"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "6"
+                        st.rerun()
+
+            col7, col8, col9 = st.columns(3)
+            with col7:
+                if st.button("7", use_container_width=True, key="pin_7"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "7"
+                        st.rerun()
+            with col8:
+                if st.button("8", use_container_width=True, key="pin_8"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "8"
+                        st.rerun()
+            with col9:
+                if st.button("9", use_container_width=True, key="pin_9"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "9"
+                        st.rerun()
+
+            col_borrar, col0, col_entrar = st.columns(3)
+            with col_borrar:
+                if st.button("⌫ Borrar", use_container_width=True, key="pin_del"):
+                    st.session_state["pin_buffer"] = ""
+                    st.rerun()
+            with col0:
+                if st.button("0", use_container_width=True, key="pin_0"):
+                    if len(pin_actual) < 4:
+                        st.session_state["pin_buffer"] += "0"
+                        st.rerun()
+            with col_entrar:
+                if st.button("🔓 Entrar", type="primary", use_container_width=True, key="pin_enter"):
+                    if st.session_state["pin_buffer"] == datos_taller["pin"]:
+                        st.session_state["usuario_autenticado"] = True
+                        st.session_state["pin_buffer"] = ""
+                        st.rerun()
+                    else:
+                        st.error("❌ PIN incorrecto. Intenta nuevamente.")
+                        st.session_state["pin_buffer"] = ""
+
+            st.markdown("---")
+            st.info(f"💡 **PIN demostrativo para evaluación:** `{datos_taller['pin']}`")
+
+            if st.button("⚡ Acceso Rápido Modo Evaluador (1 Clic)", type="secondary", use_container_width=True):
+                st.session_state["usuario_autenticado"] = True
+                st.session_state["pin_buffer"] = ""
+                st.rerun()
+
 def renderizar_barra_lateral() -> tuple[float, str, int, str]:
     historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
     conteo_historial = len(historial)
+    taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
+    datos_taller = TALLERES_REGISTRADOS.get(taller_activo, list(TALLERES_REGISTRADOS.values())[0])
 
     with st.sidebar:
         st.markdown(
-            """
+            f"""
             <div style="padding: 0.2rem 0 0.8rem 0;">
-                <span class="tag-lab">⚡ WORKSHOP OS</span>
-                <h3 style="margin: 0.4rem 0 0.1rem 0; font-size: 1.25rem; font-weight: 800;">TallerFix Console</h3>
-                <span style="font-size: 0.8rem; color: #94a3b8;">Sistema de Atención y Triaje Técnico</span>
+                <span class="tag-lab">⚡ SESIÓN ACTIVA</span>
+                <h3 style="margin: 0.35rem 0 0.1rem 0; font-size: 1.15rem; font-weight: 800;">{taller_activo}</h3>
+                <span style="font-size: 0.8rem; color: #94a3b8;">👨‍🔧 {datos_taller['encargado']}</span>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+        if st.button("🚪 Cerrar Turno / Cambiar Taller", use_container_width=True):
+            st.session_state["usuario_autenticado"] = False
+            st.session_state["pin_buffer"] = ""
+            st.rerun()
+
         st.markdown("---")
 
         st.subheader("🧭 Navegación")
@@ -454,6 +607,7 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     buffer = io.StringIO()
     campos = [
         "timestamp",
+        "taller",
         "metodo",
         "cliente_nombre",
         "cliente_telefono",
@@ -475,12 +629,13 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     return buffer.getvalue()
 
 def renderizar_encabezado_principal() -> None:
+    taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
     st.markdown(
-        """
+        f"""
         <div class="header-terminal">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.8rem;">
                 <div>
-                    <span class="tag-lab">🔧 TALLERFIX · WORKSHOP ASSISTANT</span>
+                    <span class="tag-lab">🔧 {taller_activo.upper()}</span>
                     <h1 style="margin: 0.35rem 0 0.2rem 0; font-size: 1.85rem; font-weight: 800; letter-spacing: -0.02em;">
                         Asistente de Triaje Técnico y Respuestas para WhatsApp
                     </h1>
@@ -488,7 +643,7 @@ def renderizar_encabezado_principal() -> None:
                         Clasifica incidencias de reparación, diagnostica fallas y redacta respuestas comerciales listas para enviar.
                     </p>
                 </div>
-                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                     <span class="telemetria-pill">🟢 Taller Online</span>
                     <span class="telemetria-pill">🤖 Gemini 3.8 Flash</span>
                 </div>
@@ -564,7 +719,7 @@ def renderizar_vista_historial() -> None:
 
             with col_encabezado_izq:
                 st.markdown(
-                    f"**Caso #{len(historial) - indice}** · `{entrada['timestamp']}` · **{entrada['metodo']}** | "
+                    f"**Caso #{len(historial) - indice}** · `{entrada['timestamp']}` · **{entrada['taller']}** · *{entrada['metodo']}* | "
                     f"👤 **{identificador}** | <span class='badge-chip {urgencia_clase}'>{entrada['urgencia']}</span> | "
                     f"**{entrada['categoria']}**",
                     unsafe_allow_html=True,
@@ -653,6 +808,8 @@ def renderizar_modo_ia(
             st.session_state["resultado_actual"] = None
             st.rerun()
 
+    taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
+
     if boton_analizar:
         texto_a_evaluar = mensaje_actual.strip()
 
@@ -691,11 +848,13 @@ def renderizar_modo_ia(
                     limite_tokens=limite_tokens_seleccionado,
                     nombre_cliente=nombre_resuelto,
                     telefono_cliente=telefono_resuelto,
+                    taller_origen=taller_activo,
                 )
                 st.session_state["resultado_actual"] = resultado
 
                 registro_nuevo: RegistroHistorial = {
                     "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "taller": taller_activo,
                     "metodo": "🤖 Gemini 3.8 Flash",
                     "cliente_nombre": nombre_resuelto,
                     "cliente_telefono": telefono_resuelto,
@@ -771,6 +930,7 @@ def renderizar_modo_ia(
                     </div>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; color: #cbd5e1; font-size: 0.9rem;">
                         <div>
+                            <strong>🏢 Taller:</strong> {resultado_activo['taller']}<br>
                             <strong>👤 Cliente:</strong> {resultado_activo['cliente_nombre']} &nbsp;|&nbsp; <strong>📱 Tel:</strong> {resultado_activo['cliente_telefono']}<br>
                             <strong>⚠️ Falla reportada:</strong> {resultado_activo['falla_reportada']}
                         </div>
@@ -812,8 +972,10 @@ def renderizar_modo_ia(
                     st.caption("Abre WhatsApp para que elijas a cuál cliente enviar la respuesta precargada.")
 
 def renderizar_modo_manual() -> None:
+    taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
+
     st.markdown("#### ✍️ Registro de Mostrador y Triaje Manual")
-    st.caption("Ingresa y clasifica un caso directamente en el mostrador sin recurrir al asistente de IA:")
+    st.caption(f"Ingresa y clasifica un caso directamente en el mostrador para **{taller_activo}**:")
 
     col_nom, col_tel = st.columns(2)
     with col_nom:
@@ -879,7 +1041,7 @@ def renderizar_modo_manual() -> None:
 
     plantilla_borrador_default = (
         f"Hola {nombre_manual.strip() if nombre_manual.strip() else ''}, "
-        f"recibimos tu solicitud para el equipo {dispositivo_manual.strip() if dispositivo_manual.strip() else 'reportado'}. "
+        f"recibimos tu solicitud en {taller_activo} para el equipo {dispositivo_manual.strip() if dispositivo_manual.strip() else 'reportado'}. "
         "Con gusto lo revisamos en mostrador para darte un diagnóstico formal. ¿Te gustaría agendar tu entrega hoy?"
     )
 
@@ -902,6 +1064,7 @@ def renderizar_modo_manual() -> None:
 
             registro_nuevo: RegistroHistorial = {
                 "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "taller": taller_activo,
                 "metodo": "✍️ Registro Manual",
                 "cliente_nombre": nom_final,
                 "cliente_telefono": tel_final,
@@ -917,7 +1080,7 @@ def renderizar_modo_manual() -> None:
                 "tokens_limite": 0,
             }
             st.session_state["historial_mensajes"].insert(0, registro_nuevo)
-            st.success("✅ Caso manual guardado exitosamente en el historial.")
+            st.success(f"✅ Caso manual guardado en {taller_activo}.")
             st.rerun()
 
     with col_enviar_wa:
@@ -952,6 +1115,20 @@ def renderizar_vista_clasificador(
 
 def main() -> None:
     configurar_pagina()
+
+    if "usuario_autenticado" not in st.session_state:
+        st.session_state["usuario_autenticado"] = False
+
+    if "pin_buffer" not in st.session_state:
+        st.session_state["pin_buffer"] = ""
+
+    if "taller_activo" not in st.session_state:
+        st.session_state["taller_activo"] = "Taller Central · FixLab"
+
+    if not st.session_state["usuario_autenticado"]:
+        renderizar_pantalla_login_pin()
+        return
+
     aplicar_estilos_taller()
 
     if "mensaje_input" not in st.session_state:
