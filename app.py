@@ -178,7 +178,7 @@ CATALOGO_SERVICIOS = [
     },
 ]
 
-MODELO_ACTIVO: str = "gemini-1.5-flash"
+MODELO_ACTIVO: str = "gemini-3.8-flash"
 
 PROMPT_SISTEMA_OPERATIVO: str = (
     "Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.\n"
@@ -577,6 +577,20 @@ def clasificar_excepcion_operativa(excepcion: Exception) -> DiagnosticoIncidenci
             "es_recuperable_manual": True,
         }
 
+    if isinstance(excepcion, ErrorOperativoTaller):
+        return {
+            "categoria": "Incidencia Operativa",
+            "titulo": "Incidencia en Servicio de IA",
+            "descripcion": excepcion.mensaje,
+            "accion_sugerida": (
+                excepcion.accion_sugerida
+                if excepcion.accion_sugerida
+                else "Puedes reintentar la operación o alternar a la pestaña de '✍️ Triaje Manual de Mostrador'."
+            ),
+            "icono": "🛡️",
+            "es_recuperable_manual": True,
+        }
+
     return {
         "categoria": "Incidencia Operativa",
         "titulo": "Incidencia al Procesar la Consulta",
@@ -624,14 +638,14 @@ def ejecutar_clasificacion_gemini(
     nombre_cliente: str = "No especificado",
     telefono_cliente: str = "No registrado",
     taller_origen: str = "Taller Central · FixLab",
-    modelo_preferido: str = "gemini-1.5-flash",
+    modelo_preferido: str = "gemini-3.8-flash",
 ) -> ResultadoClasificacion:
     tiempo_inicio = time.perf_counter()
 
     cliente_genai = None
     try:
         if hasattr(types, "HttpOptions"):
-            opciones_http = types.HttpOptions(timeout=10000)
+            opciones_http = types.HttpOptions(timeout=60000)
             cliente_genai = genai.Client(api_key=clave_api, http_options=opciones_http)
         else:
             cliente_genai = genai.Client(api_key=clave_api)
@@ -644,7 +658,7 @@ def ejecutar_clasificacion_gemini(
                 accion_sugerida="Comprueba que la clave GEMINI_API_KEY tenga formato válido."
             )
 
-    todos_modelos = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash"]
+    todos_modelos = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
     modelos_candidatos = [modelo_preferido] + [m for m in todos_modelos if m != modelo_preferido]
 
     ultimo_error: Optional[Exception] = None
@@ -653,8 +667,8 @@ def ejecutar_clasificacion_gemini(
     auto_recuperado = False
 
     for modelo_evaluar in modelos_candidatos:
-        soporta_thinking = "2.0" in modelo_evaluar and nivel_thinking != "OFF"
-        tokens_efectivos = max(limite_tokens, 3500) if soporta_thinking else limite_tokens
+        soporta_thinking = ("3.8" in modelo_evaluar or "2." in modelo_evaluar) and nivel_thinking != "OFF"
+        tokens_efectivos = max(limite_tokens, 4000) if soporta_thinking else limite_tokens
 
         configuracion = None
         if soporta_thinking:
@@ -709,7 +723,7 @@ def ejecutar_clasificacion_gemini(
             texto_respuesta_valido = False
 
     if not texto_respuesta_valido:
-        for modelo_rescate in ["gemini-1.5-flash", "gemini-1.5-flash-8b"]:
+        for modelo_rescate in ["gemini-3.8-flash", "gemini-3.5-flash-lite"]:
             try:
                 config_rescate = types.GenerateContentConfig(
                     system_instruction=PROMPT_SISTEMA_OPERATIVO,
@@ -741,8 +755,18 @@ def ejecutar_clasificacion_gemini(
                 raise ErrorServidorSaturado("Servidores de Gemini saturados (HTTP 503).")
             elif any(k in detalle_u for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "UNAUTHENTICATED", "401", "403")):
                 raise ErrorAutenticacionAPI("Clave de API no válida o rechazada.")
+            elif any(p in detalle_u.lower() for p in ("timeout", "timed out", "connection", "connect")):
+                raise ErrorConexionRed(f"Tiempo de espera de red agotado: {detalle_u}")
+            elif "404" in detalle_u or "not found" in detalle_u.lower():
+                raise ErrorOperativoTaller(
+                    f"El modelo no está disponible en la API: {detalle_u}",
+                    accion_sugerida="Asegúrate de seleccionar 'gemini-3.8-flash' en el panel lateral."
+                )
             else:
-                raise ErrorRespuestaVacia("La API devolvió una respuesta vacía o sin texto legible.")
+                raise ErrorOperativoTaller(
+                    f"Incidencia técnica del servicio de IA: {detalle_u}",
+                    accion_sugerida="Prueba reintentar en Modo TURBO o utiliza el Triaje Manual de Mostrador."
+                )
         raise ErrorRespuestaVacia("La API devolvió una respuesta vacía o sin texto legible.")
 
     datos_json = limpiar_y_parsear_json_gemini(respuesta.text)
@@ -951,7 +975,7 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
         temperatura = 0.2
         nivel_thinking = "LOW"
         limite_tokens = 1500
-        modelo_seleccionado = "gemini-1.5-flash"
+        modelo_seleccionado = "gemini-3.8-flash"
 
         if modo_vista == "clasificador":
             st.subheader("⚙️ Parámetros del Asistente")
@@ -959,12 +983,12 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             modelo_opcion = st.selectbox(
                 "Motor de Inferencia Gemini:",
                 options=[
-                    "gemini-1.5-flash (Ultra Rápido · Producción ~0.8s)",
-                    "gemini-1.5-flash-8b (Flash-Lite · Máxima Velocidad ~0.4s)",
-                    "gemini-2.0-flash (Experimental · Próxima Generación)",
+                    "gemini-3.8-flash (Flagship Oficial · Producción)",
+                    "gemini-3.5-flash-lite (Flash-Lite · Máxima Velocidad)",
+                    "gemini-2.5-flash (Versión Anterior)",
                 ],
                 index=0,
-                help="gemini-1.5-flash y 1.5-flash-8b son los motores recomendados para clasificación de texto por su latencia sub-segundo y máxima estabilidad JSON.",
+                help="gemini-3.8-flash es el modelo oficial vigente de Google para inferencia de alto rendimiento y clasificación estructurada.",
             )
             modelo_seleccionado = modelo_opcion.split(" ")[0]
 
@@ -1033,7 +1057,7 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             <div style="font-size: 0.78rem; color: #64748b; line-height: 1.4;">
                 <strong>Módulo:</strong> Fundamentos de Programación para IA<br>
                 <strong>Máster en IA:</strong> OBS Business School<br>
-                <strong>Backend:</strong> Google Gemini 1.5 Flash (Producción)
+                <strong>Backend:</strong> Google Gemini 3.8 Flash (Producción)
             </div>
             """,
             unsafe_allow_html=True,
@@ -1069,7 +1093,7 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     except Exception:
         return "timestamp,taller,error\n00:00:00,General,Error al exportar registros"
 
-def renderizar_encabezado_principal(modelo_activo: str = "gemini-1.5-flash") -> None:
+def renderizar_encabezado_principal(modelo_activo: str = "gemini-3.8-flash") -> None:
     taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
     st.markdown(
         f"""
@@ -1231,7 +1255,7 @@ def renderizar_modo_ia(
     temperatura_seleccionada: float,
     nivel_thinking_seleccionado: str,
     limite_tokens_seleccionado: int,
-    modelo_seleccionado: str = "gemini-1.5-flash",
+    modelo_seleccionado: str = "gemini-3.8-flash",
 ) -> None:
     st.markdown("#### ⚡ Acciones Rápidas · Casos Frecuentes")
     st.caption("Selecciona cualquier caso para precargar datos y clasificar automáticamente en 1 clic:")
@@ -1850,7 +1874,7 @@ def renderizar_vista_clasificador(
     temperatura_seleccionada: float,
     nivel_thinking_seleccionado: str,
     limite_tokens_seleccionado: int,
-    modelo_seleccionado: str = "gemini-1.5-flash",
+    modelo_seleccionado: str = "gemini-3.8-flash",
 ) -> None:
     renderizar_encabezado_principal(modelo_seleccionado)
 
