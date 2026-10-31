@@ -176,7 +176,7 @@ CATALOGO_SERVICIOS = [
     },
 ]
 
-MODELO_ACTIVO: str = "gemini-3.8-flash"
+MODELO_ACTIVO: str = "gemini-1.5-flash"
 
 PROMPT_SISTEMA_OPERATIVO: str = (
     "Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.\n"
@@ -622,16 +622,25 @@ def ejecutar_clasificacion_gemini(
     nombre_cliente: str = "No especificado",
     telefono_cliente: str = "No registrado",
     taller_origen: str = "Taller Central · FixLab",
+    modelo_preferido: str = "gemini-1.5-flash",
 ) -> ResultadoClasificacion:
     tiempo_inicio = time.perf_counter()
 
+    cliente_genai = None
     try:
-        cliente_genai = genai.Client(api_key=clave_api)
-    except Exception as error_cliente:
-        raise ErrorAutenticacionAPI(
-            f"Fallo al inicializar cliente de Google GenAI: {error_cliente}",
-            accion_sugerida="Comprueba que la clave GEMINI_API_KEY tenga formato válido."
-        )
+        if hasattr(types, "HttpOptions"):
+            opciones_http = types.HttpOptions(timeout=10000)
+            cliente_genai = genai.Client(api_key=clave_api, http_options=opciones_http)
+        else:
+            cliente_genai = genai.Client(api_key=clave_api)
+    except Exception:
+        try:
+            cliente_genai = genai.Client(api_key=clave_api)
+        except Exception as error_cliente:
+            raise ErrorAutenticacionAPI(
+                f"Fallo al inicializar cliente de Google GenAI: {error_cliente}",
+                accion_sugerida="Comprueba que la clave GEMINI_API_KEY tenga formato válido."
+            )
 
     configuracion = None
     if nivel_thinking != "OFF":
@@ -669,53 +678,30 @@ def ejecutar_clasificacion_gemini(
 
     ultimo_error: Optional[Exception] = None
     respuesta = None
-    modelo_utilizado = MODELO_ACTIVO
-    modelos_candidatos = ["gemini-2.0-flash", MODELO_ACTIVO]
+    modelo_utilizado = modelo_preferido
+
+    todos_modelos = ["gemini-1.5-flash", "gemini-2.0-flash"]
+    modelos_candidatos = [modelo_preferido] + [m for m in todos_modelos if m != modelo_preferido]
 
     for modelo_evaluar in modelos_candidatos:
         try:
-            for intento in range(2):
-                try:
-                    respuesta = cliente_genai.models.generate_content(
-                        model=modelo_evaluar,
-                        contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
-                        config=configuracion,
-                    )
-                    if respuesta and respuesta.text:
-                        modelo_utilizado = modelo_evaluar
-                        break
-                except Exception as error_intento:
-                    ultimo_error = error_intento
-                    detalle_intento = str(error_intento)
-
-                    if ("503" in detalle_intento or "UNAVAILABLE" in detalle_intento) and intento == 0:
-                        time.sleep(1.5)
-                        continue
-
-                    if "404" in detalle_intento or "NOT_FOUND" in detalle_intento:
-                        break
-
-                    nombre_error = type(error_intento).__name__
-                    if "RESOURCE_EXHAUSTED" in detalle_intento or "429" in detalle_intento:
-                        raise ErrorCuotaExcedida("Límite de cuota alcanzado (HTTP 429).")
-                    elif "UNAVAILABLE" in detalle_intento or "503" in detalle_intento:
-                        raise ErrorServidorSaturado("Servidor de inferencia en alta demanda (HTTP 503).")
-                    elif any(k in detalle_intento for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
-                        raise ErrorAutenticacionAPI("Clave de API inválida o denegada.")
-                    elif any(k in detalle_intento.lower() or k in nombre_error.lower() for k in ("connect", "timeout", "socket", "gaierror")):
-                        raise ErrorConexionRed(f"Fallo de conexión de red: {error_intento}")
-                    else:
-                        raise error_intento
-
+            respuesta = cliente_genai.models.generate_content(
+                model=modelo_evaluar,
+                contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
+                config=configuracion,
+            )
             if respuesta and respuesta.text:
+                modelo_utilizado = modelo_evaluar
                 break
-        except (ErrorCuotaExcedida, ErrorServidorSaturado, ErrorAutenticacionAPI, ErrorConexionRed):
-            raise
-        except Exception as error_modelo:
-            detalle_m = str(error_modelo)
-            if "404" in detalle_m or "NOT_FOUND" in detalle_m:
-                continue
-            raise error_modelo
+        except Exception as error_intento:
+            ultimo_error = error_intento
+            detalle_intento = str(error_intento)
+
+            if any(k in detalle_intento for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
+                raise ErrorAutenticacionAPI("Clave de API inválida o denegada.")
+
+            # Si el modelo da timeout, 404, 429 o 503, saltar de inmediato al siguiente modelo
+            continue
 
     if not respuesta or not respuesta.text:
         if ultimo_error:
@@ -935,9 +921,21 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
         temperatura = 0.2
         nivel_thinking = "LOW"
         limite_tokens = 1500
+        modelo_seleccionado = "gemini-1.5-flash"
 
         if modo_vista == "clasificador":
             st.subheader("⚙️ Parámetros del Asistente")
+
+            modelo_opcion = st.selectbox(
+                "Motor de Inferencia Gemini:",
+                options=[
+                    "gemini-1.5-flash (Ultra Rápido · Producción)",
+                    "gemini-2.0-flash (Experimental)",
+                ],
+                index=0,
+                help="gemini-1.5-flash es el modelo de producción oficial de Google de menor latencia (~0.8s) y mayor estabilidad para JSON.",
+            )
+            modelo_seleccionado = modelo_opcion.split(" ")[0]
 
             temperatura = st.slider(
                 "Creatividad de respuesta (Temperature):",
@@ -1004,13 +1002,13 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             <div style="font-size: 0.78rem; color: #64748b; line-height: 1.4;">
                 <strong>Módulo:</strong> Fundamentos de Programación para IA<br>
                 <strong>Máster en IA:</strong> OBS Business School<br>
-                <strong>Backend:</strong> Google Gemini 3.8 Flash
+                <strong>Backend:</strong> Google Gemini 1.5 Flash (Producción)
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        return temperatura, nivel_thinking, limite_tokens, modo_vista
+        return temperatura, nivel_thinking, limite_tokens, modo_vista, modelo_seleccionado
 
 def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     try:
@@ -1183,6 +1181,8 @@ def callback_cargar_preset_ia(texto: str, nombre: str, telefono: str) -> None:
     st.session_state["cliente_nombre_input"] = nombre
     st.session_state["cliente_telefono_input"] = telefono
     st.session_state["disparar_clasificacion_automatica"] = True
+    st.session_state["borrador_respuesta_whatsapp"] = ""
+    st.session_state["borrador_no_interpretable"] = ""
 
 def callback_limpiar_formulario_ia() -> None:
     st.session_state["input_ia_mensaje"] = ""
@@ -1193,11 +1193,14 @@ def callback_limpiar_formulario_ia() -> None:
     st.session_state["cliente_telefono_input"] = ""
     st.session_state["resultado_actual"] = None
     st.session_state["mostrar_bloque_copia"] = False
+    st.session_state["borrador_respuesta_whatsapp"] = ""
+    st.session_state["borrador_no_interpretable"] = ""
 
 def renderizar_modo_ia(
     temperatura_seleccionada: float,
     nivel_thinking_seleccionado: str,
     limite_tokens_seleccionado: int,
+    modelo_seleccionado: str = "gemini-1.5-flash",
 ) -> None:
     st.markdown("#### ⚡ Acciones Rápidas · Casos Frecuentes")
     st.caption("Selecciona cualquier caso para precargar datos y clasificar automáticamente en 1 clic:")
@@ -1340,6 +1343,8 @@ def renderizar_modo_ia(
                 "taller": taller_activo,
             }
             st.session_state["resultado_actual"] = resultado
+            st.session_state["borrador_respuesta_whatsapp"] = resultado["borrador_respuesta"]
+            st.session_state["borrador_no_interpretable"] = resultado["borrador_respuesta"]
 
             registro_nuevo: RegistroHistorial = {
                 "timestamp": datetime.now().strftime("%H:%M:%S"),
@@ -1362,9 +1367,9 @@ def renderizar_modo_ia(
         else:
             try:
                 mensaje_spinner = (
-                    "⚡ Analizando en Modo TURBO con Google Gemini..."
+                    f"⚡ Analizando en Modo TURBO con {modelo_seleccionado}..."
                     if nivel_thinking_seleccionado == "OFF"
-                    else "🧠 Analizando con razonamiento reflexivo en Google Gemini..."
+                    else f"🧠 Analizando con razonamiento reflexivo en {modelo_seleccionado}..."
                 )
                 with st.spinner(mensaje_spinner):
                     resultado = ejecutar_clasificacion_gemini(
@@ -1376,8 +1381,11 @@ def renderizar_modo_ia(
                         nombre_cliente=nombre_resuelto,
                         telefono_cliente=telefono_resuelto,
                         taller_origen=taller_activo,
+                        modelo_preferido=modelo_seleccionado,
                     )
                     st.session_state["resultado_actual"] = resultado
+                    st.session_state["borrador_respuesta_whatsapp"] = resultado["borrador_respuesta"]
+                    st.session_state["borrador_no_interpretable"] = resultado["borrador_respuesta"]
                     st.session_state["cache_consultas_ia"][clave_cache] = resultado
 
                     registro_nuevo_ia: RegistroHistorial = {
@@ -1811,6 +1819,7 @@ def renderizar_vista_clasificador(
     temperatura_seleccionada: float,
     nivel_thinking_seleccionado: str,
     limite_tokens_seleccionado: int,
+    modelo_seleccionado: str = "gemini-1.5-flash",
 ) -> None:
     renderizar_encabezado_principal()
 
@@ -1824,6 +1833,7 @@ def renderizar_vista_clasificador(
             temperatura_seleccionada,
             nivel_thinking_seleccionado,
             limite_tokens_seleccionado,
+            modelo_seleccionado,
         )
 
     with tab_manual:
@@ -1874,7 +1884,13 @@ def main() -> None:
     if "historial_mensajes" not in st.session_state:
         st.session_state["historial_mensajes"] = []
 
-    temperatura_seleccionada, nivel_thinking_seleccionado, limite_tokens_seleccionado, modo_vista = renderizar_barra_lateral()
+    (
+        temperatura_seleccionada,
+        nivel_thinking_seleccionado,
+        limite_tokens_seleccionado,
+        modo_vista,
+        modelo_seleccionado,
+    ) = renderizar_barra_lateral()
 
     if modo_vista == "historial":
         renderizar_vista_historial()
@@ -1889,6 +1905,7 @@ def main() -> None:
             temperatura_seleccionada,
             nivel_thinking_seleccionado,
             limite_tokens_seleccionado,
+            modelo_seleccionado,
         )
 
 if __name__ == "__main__":
