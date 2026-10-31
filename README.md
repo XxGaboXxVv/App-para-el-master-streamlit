@@ -17,7 +17,7 @@
 La aplicación cuenta con la integración completa de la API oficial de **Google Gemini (`gemini-3.8-flash`)** mediante el SDK `google-genai`:
 - **Interfaz Temática de Taller Técnico:** Diseño moderno con tipografía especializada, tarjetas de diagnóstico, insignias visuales de urgencia y barra de estado operativa.
 - **Control de Acceso Multi-Taller:** Login táctil con PIN Pad numérico interactivo por sucursal (`Taller Central · FixLab` y `Sucursal Norte · Mobile Express`) con botón de acceso demo inmediato para evaluadores.
-- **Módulos Complementarios de Mostrador (Sección Inferior):**
+- **Módulos Operativos Independientes (Navegación Lateral):**
   - *Tarifario y Catálogo Rápido:* Filtro por categoría de repuestos con precios promedio, tiempos y garantías.
   - *Calculadora de Presupuestos:* Desglose transparente con generador de cotización y despacho directo a WhatsApp.
   - *Checklist de Recepción de Equipos:* Verificación de 9 puntos de estado físico con comprobante de ingreso anti-reclamos para WhatsApp.
