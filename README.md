@@ -15,13 +15,15 @@
 
 ## 📋 Estado del Proyecto: Semana 3 (Integración de la IA y Experiencia PyME)
 La aplicación cuenta con la integración completa de la API oficial de **Google Gemini (`gemini-3.8-flash`)** mediante el SDK `google-genai`:
+- **Interfaz Temática de Taller Técnico:** Diseño moderno con tipografía especializada, tarjetas de diagnóstico, insignias visuales de urgencia y barra de estado operativa.
+- **Modalidad Dual (Human-in-the-Loop):** Pestañas para alternar libremente entre triaje automático con Gemini IA y registro manual de mostrador.
 - **Inferencia en tiempo real:** Clasificación de urgencia y categoría con salidas estructuradas en JSON nativo (`response_mime_type="application/json"`).
 - **Despacho directo a WhatsApp (Click-to-Chat):** Apertura directa del chat mediante enlaces universales (`wa.me`) con el borrador generado precargado para enviar sin copiar y pegar.
 - **Trazabilidad de Contactos e Historial:** Registro de nombre y teléfono del cliente en sesión, vista de auditoría dedicada en el menú lateral y exportación a archivo CSV.
 - **Manejo resiliente de errores:** Detección y tratamiento controlado de cuota (`ResourceExhausted` / 429), servidores saturados (`503 UNAVAILABLE`) con reintento automático y validación léxica previa.
-- **Control de hiperparámetros:** Control de temperatura interactivo en el sidebar para ajustar la creatividad del modelo.
+- **Control de hiperparámetros:** Ajuste interactivo de temperatura, nivel de razonamiento (*thinking*) y tokens máximos blindados en mínimo 1000.
 - **Seguridad:** La clave se lee exclusivamente de `st.secrets["GEMINI_API_KEY"]` en Streamlit Community Cloud.
-- **Carga de casos rápidos:** Botones laterales para probar garantías críticas, cotizaciones, estatus de reparación y casos ambiguos sin teclear.
+- **Carga de casos rápidos:** Barra superior y lateral para probar garantías críticas, cotizaciones, estatus de reparación y casos ambiguos en un solo clic.
 
 ---
 

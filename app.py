@@ -30,9 +30,11 @@ class ResultadoClasificacion(TypedDict):
     cliente_telefono: str
     nivel_thinking: str
     tokens_limite: int
+    metodo: str
 
 class RegistroHistorial(TypedDict):
     timestamp: str
+    metodo: str
     cliente_nombre: str
     cliente_telefono: str
     mensaje_original: str
@@ -46,23 +48,37 @@ class RegistroHistorial(TypedDict):
     nivel_thinking: str
     tokens_limite: int
 
-PRESET_MESSAGES: dict[str, str] = {
-    "⚠️ Reclamo de Garantía": (
-        "Hola amigo, ayer recogí mi iPhone 11 que le cambiaste la pantalla "
-        "y hoy ya no responde el touch en la mitad de abajo. Me urge resolverlo "
-        "porque es mi herramienta de trabajo!"
-    ),
-    "📱 Cotización de Pantalla": (
-        "Buenas tardes, cuánto me saldría el cambio de pantalla de un "
-        "Samsung Galaxy A54? Se estrelló pero todavía da imagen. Tienen repuesto?"
-    ),
-    "⏳ Consulta de Estatus": (
-        "Qué tal, disculpa la molestia. Quería saber si ya quedó listo el "
-        "Xiaomi Redmi Note 12 azul que te dejé antier para cambio de centro de carga."
-    ),
-    "❓ Consulta Ambigua": (
-        "Buenas, arreglan celulares?"
-    ),
+PRESET_MESSAGES: dict[str, dict[str, str]] = {
+    "⚠️ Reclamo de Garantía": {
+        "nombre": "Roberto Gómez",
+        "telefono": "+525512345678",
+        "texto": (
+            "Hola amigo, ayer recogí mi iPhone 11 que le cambiaste la pantalla "
+            "y hoy ya no responde el touch en la mitad de abajo. Me urge resolverlo "
+            "porque es mi herramienta de trabajo!"
+        ),
+    },
+    "📱 Cotización de Pantalla": {
+        "nombre": "Ana Morales",
+        "telefono": "+525587654321",
+        "texto": (
+            "Buenas tardes, cuánto me saldría el cambio de pantalla de un "
+            "Samsung Galaxy A54? Se estrelló pero todavía da imagen. Tienen repuesto?"
+        ),
+    },
+    "⏳ Consulta de Estatus": {
+        "nombre": "Luis Hernández",
+        "telefono": "+525599887766",
+        "texto": (
+            "Qué tal, disculpa la molestia. Quería saber si ya quedó listo el "
+            "Xiaomi Redmi Note 12 azul que te dejé antier para cambio de centro de carga."
+        ),
+    },
+    "❓ Consulta Ambigua": {
+        "nombre": "",
+        "telefono": "",
+        "texto": "Buenas, arreglan celulares?",
+    },
 }
 
 MODELO_ACTIVO: str = "gemini-3.8-flash"
@@ -92,6 +108,92 @@ PROMPT_SISTEMA_OPERATIVO: str = (
     "4. Si es un saludo vago o pregunta muy amplia pero comprensible: urgencia='BAJA', categoria='Consulta General' "
     "y en borrador_respuesta solicita amablemente marca, modelo y síntoma.\n"
 )
+
+ESTILO_CSS_TALLER: str = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+    }
+
+    .header-terminal {
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%);
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 14px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.35);
+    }
+
+    .tag-lab {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: rgba(56, 189, 248, 0.12);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        padding: 0.25rem 0.65rem;
+        border-radius: 9999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .badge-chip {
+        display: inline-block;
+        padding: 0.35rem 0.85rem;
+        border-radius: 9999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+
+    .badge-alta {
+        background: rgba(239, 68, 68, 0.18);
+        color: #f87171;
+        border: 1px solid #ef4444;
+    }
+
+    .badge-media {
+        background: rgba(245, 158, 11, 0.18);
+        color: #fbbf24;
+        border: 1px solid #f59e0b;
+    }
+
+    .badge-baja {
+        background: rgba(56, 189, 248, 0.18);
+        color: #38bdf8;
+        border: 1px solid #0284c7;
+    }
+
+    .telemetria-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: #94a3b8;
+        padding: 0.3rem 0.7rem;
+        border-radius: 8px;
+        font-size: 0.78rem;
+        font-family: 'JetBrains Mono', monospace;
+    }
+
+    .card-taller {
+        background: rgba(30, 41, 59, 0.55);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 12px;
+        padding: 1.1rem 1.3rem;
+        margin-bottom: 1rem;
+    }
+</style>
+"""
+
+def aplicar_estilos_taller() -> None:
+    st.markdown(ESTILO_CSS_TALLER, unsafe_allow_html=True)
 
 def validar_coherencia_minima(texto: str) -> bool:
     texto_limpio = texto.strip()
@@ -245,11 +347,12 @@ def ejecutar_clasificacion_gemini(
         "cliente_telefono": telefono_cliente,
         "nivel_thinking": nivel_thinking,
         "tokens_limite": limite_tokens,
+        "metodo": "🤖 Gemini 3.8 Flash",
     }
 
 def configurar_pagina() -> None:
     st.set_page_config(
-        page_title="Asistente de Taller · Clasificador PyME",
+        page_title="TallerFix OS · Triaje y WhatsApp",
         page_icon="🛠️",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -260,20 +363,28 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
     conteo_historial = len(historial)
 
     with st.sidebar:
-        st.header("🛠️ Asistente de Taller")
-        st.caption("Clasificador PyME · WhatsApp")
+        st.markdown(
+            """
+            <div style="padding: 0.2rem 0 0.8rem 0;">
+                <span class="tag-lab">⚡ WORKSHOP OS</span>
+                <h3 style="margin: 0.4rem 0 0.1rem 0; font-size: 1.25rem; font-weight: 800;">TallerFix Console</h3>
+                <span style="font-size: 0.8rem; color: #94a3b8;">Sistema de Atención y Triaje Técnico</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown("---")
 
-        st.subheader("🧭 Menú de Vistas")
-        etiqueta_historial = f"📚 Historial ({conteo_historial})"
-        opciones_menu = ["🛠️ Clasificador en Vivo", etiqueta_historial]
+        st.subheader("🧭 Navegación")
+        etiqueta_historial = f"📚 Registro Histórico ({conteo_historial})"
+        opciones_menu = ["🛠️ Terminal de Triaje", etiqueta_historial]
         vista_seleccionada = st.radio(
             "Selecciona la sección activa:",
             options=opciones_menu,
             index=0,
             label_visibility="collapsed",
         )
-        modo_vista = "clasificador" if "Clasificador" in vista_seleccionada else "historial"
+        modo_vista = "clasificador" if "Terminal" in vista_seleccionada else "historial"
         st.markdown("---")
 
         temperatura = 0.2
@@ -281,15 +392,7 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
         limite_tokens = 1500
 
         if modo_vista == "clasificador":
-            st.subheader("💡 Casos de Prueba Rápida")
-            st.caption("Carga un mensaje típico para probar el clasificador:")
-
-            for nombre_ejemplo, texto_ejemplo in PRESET_MESSAGES.items():
-                if st.button(nombre_ejemplo, use_container_width=True):
-                    st.session_state["mensaje_input"] = texto_ejemplo
-
-            st.markdown("---")
-            st.subheader("⚙️ Parámetros del Modelo")
+            st.subheader("⚙️ Motor de Inferencia IA")
 
             temperatura = st.slider(
                 "Creatividad de respuesta (Temperature):",
@@ -314,7 +417,7 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             nivel_thinking = mapeo_thinking[opcion_thinking]
 
             limite_tokens = st.slider(
-                "Límite máximo de tokens de salida (Tokens):",
+                "Límite de tokens de salida:",
                 min_value=1000,
                 max_value=3000,
                 value=1500,
@@ -323,22 +426,26 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             )
 
         else:
-            st.subheader("📊 Resumen de Sesión")
+            st.subheader("📊 Métricas de Operación")
             criticas = sum(1 for item in historial if "ALTA" in item["urgencia"])
             latencia_media = (
-                round(sum(item["latencia_segundos"] for item in historial) / conteo_historial, 2)
-                if conteo_historial > 0
-                else 0.0
+                round(sum(item["latencia_segundos"] for item in historial if item["metodo"] != "✍️ Registro Manual") /
+                      max(1, sum(1 for item in historial if item["metodo"] != "✍️ Registro Manual")), 2)
             )
-            st.markdown(f"**Mensajes analizados:** {conteo_historial}")
-            st.markdown(f"**Garantías o urgencias:** {criticas}")
-            st.markdown(f"**Latencia promedio:** {latencia_media}s")
+            st.markdown(f"**Total casos atendidos:** `{conteo_historial}`")
+            st.markdown(f"**Garantías o urgencias:** `{criticas}`")
+            st.markdown(f"**Latencia media de IA:** `{latencia_media}s`")
 
         st.markdown("---")
-        st.subheader("📌 Acerca del Sistema")
         st.markdown(
-            "Módulo de clasificación y respuesta inmediata para talleres de reparación de celulares. "
-            "Procesamiento impulsado exclusivamente por **Google Gemini**."
+            """
+            <div style="font-size: 0.78rem; color: #64748b; line-height: 1.4;">
+                <strong>Módulo:</strong> Fundamentos de Programación para IA<br>
+                <strong>Máster en IA:</strong> OBS Business School<br>
+                <strong>Backend:</strong> Google Gemini 3.8 Flash
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
         return temperatura, nivel_thinking, limite_tokens, modo_vista
@@ -347,6 +454,7 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     buffer = io.StringIO()
     campos = [
         "timestamp",
+        "metodo",
         "cliente_nombre",
         "cliente_telefono",
         "urgencia",
@@ -366,26 +474,56 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
         escritor.writerow(fila)
     return buffer.getvalue()
 
+def renderizar_encabezado_principal() -> None:
+    st.markdown(
+        """
+        <div class="header-terminal">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.8rem;">
+                <div>
+                    <span class="tag-lab">🔧 TALLERFIX · WORKSHOP ASSISTANT</span>
+                    <h1 style="margin: 0.35rem 0 0.2rem 0; font-size: 1.85rem; font-weight: 800; letter-spacing: -0.02em;">
+                        Asistente de Triaje Técnico y Respuestas para WhatsApp
+                    </h1>
+                    <p style="margin: 0; color: #94a3b8; font-size: 0.92rem;">
+                        Clasifica incidencias de reparación, diagnostica fallas y redacta respuestas comerciales listas para enviar.
+                    </p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <span class="telemetria-pill">🟢 Taller Online</span>
+                    <span class="telemetria-pill">🤖 Gemini 3.8 Flash</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def renderizar_vista_historial() -> None:
-    st.title("📚 Historial de Mensajes y Casos Clasificados")
-    st.markdown("Registro operativo de todas las consultas analizadas durante esta sesión de trabajo.")
+    renderizar_encabezado_principal()
+
+    st.subheader("📚 Registro Histórico de Casos Atendidos")
+    st.caption("Control operativo de todas las consultas analizadas o registradas manualmente durante la sesión.")
 
     historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
 
     if not historial:
-        st.info("ℹ️ No hay registros todavía en esta sesión. Ve a la vista de **Clasificador en Vivo** desde el menú lateral para procesar tus primeros mensajes.")
+        st.info("ℹ️ No hay registros todavía en esta sesión. Ve a la **Terminal de Triaje** desde el menú lateral para procesar o registrar mensajes.")
         return
 
-    col_metrica_total, col_metrica_criticas, col_metrica_latencia = st.columns(3)
+    col_metrica_total, col_metrica_criticas, col_metrica_latencia, col_metrica_manuales = st.columns(4)
     criticas = sum(1 for item in historial if "ALTA" in item["urgencia"])
-    promedio_latencia = round(sum(item["latencia_segundos"] for item in historial) / len(historial), 2)
+    manuales = sum(1 for item in historial if "Manual" in item["metodo"])
+    ia_items = [item["latencia_segundos"] for item in historial if "Manual" not in item["metodo"]]
+    promedio_latencia = round(sum(ia_items) / len(ia_items), 2) if ia_items else 0.0
 
     with col_metrica_total:
-        st.metric("Mensajes Analizados", len(historial))
+        st.metric("Casos Registrados", len(historial))
     with col_metrica_criticas:
         st.metric("Garantías / Críticas", criticas)
     with col_metrica_latencia:
-        st.metric("Latencia Promedio", f"{promedio_latencia}s")
+        st.metric("Latencia Media IA", f"{promedio_latencia}s")
+    with col_metrica_manuales:
+        st.metric("Registros Manuales", manuales)
 
     st.markdown("---")
 
@@ -400,11 +538,11 @@ def renderizar_vista_historial() -> None:
             use_container_width=True,
         )
     with col_vaciar:
-        if st.button("🗑️ Vaciar Historial", use_container_width=False):
+        if st.button("🗑️ Vaciar Historial de Sesión", use_container_width=False):
             st.session_state["historial_mensajes"] = []
             st.rerun()
 
-    st.markdown("### 📋 Registro Detallado de Consultas")
+    st.markdown("### 📋 Fichas Detalladas")
     for indice, entrada in enumerate(historial):
         with st.container(border=True):
             col_encabezado_izq, col_encabezado_der = st.columns([4, 1])
@@ -420,25 +558,35 @@ def renderizar_vista_historial() -> None:
             else:
                 identificador = "Cliente no identificado"
 
-            thinking_reg = entrada.get("nivel_thinking", "LOW")
-            tokens_reg = entrada.get("tokens_limite", 1500)
+            urgencia_clase = (
+                "badge-alta" if "ALTA" in entrada["urgencia"] else "badge-media" if "MEDIA" in entrada["urgencia"] else "badge-baja"
+            )
 
             with col_encabezado_izq:
                 st.markdown(
-                    f"**Caso #{len(historial) - indice}** · Hora: `{entrada['timestamp']}` | "
-                    f"👤 **{identificador}** | **{entrada['urgencia']}** | {entrada['categoria']}"
+                    f"**Caso #{len(historial) - indice}** · `{entrada['timestamp']}` · **{entrada['metodo']}** | "
+                    f"👤 **{identificador}** | <span class='badge-chip {urgencia_clase}'>{entrada['urgencia']}</span> | "
+                    f"**{entrada['categoria']}**",
+                    unsafe_allow_html=True,
                 )
             with col_encabezado_der:
-                st.caption(f"⚡ {entrada['latencia_segundos']}s · {thinking_reg} ({tokens_reg}t)")
+                if "Manual" in entrada["metodo"]:
+                    st.caption("✍️ Manual")
+                else:
+                    st.caption(f"⚡ {entrada['latencia_segundos']}s · {entrada['nivel_thinking']}")
 
-            st.markdown(f"**Dispositivo:** {entrada['dispositivo']} | **Falla reportada:** {entrada['falla_reportada']}")
-            st.markdown(f"**Acción recomendada en taller:** {entrada['accion_recomendada']}")
-            st.caption(f"Mensaje recibido: \"{entrada['mensaje_original']}\"")
+            col_dev, col_act = st.columns(2)
+            with col_dev:
+                st.markdown(f"**📱 Dispositivo:** {entrada['dispositivo']} · **Falla:** {entrada['falla_reportada']}")
+            with col_act:
+                st.markdown(f"**🎯 Acción en taller:** {entrada['accion_recomendada']}")
+
+            st.caption(f"Mensaje registrado: \"{entrada['mensaje_original']}\"")
 
             st.text_area(
-                label=f"Borrador emitido (Caso #{len(historial) - indice})",
+                label=f"Respuesta generada (Caso #{len(historial) - indice})",
                 value=entrada["borrador_respuesta"],
-                height=90,
+                height=85,
                 key=f"historial_borrador_{indice}",
                 disabled=True,
             )
@@ -451,16 +599,24 @@ def renderizar_vista_historial() -> None:
                 key=f"btn_wa_historial_{indice}",
             )
 
-def renderizar_vista_clasificador(
+def renderizar_modo_ia(
     temperatura_seleccionada: float,
     nivel_thinking_seleccionado: str,
     limite_tokens_seleccionado: int,
 ) -> None:
-    st.title("🛠️ Asistente de Mensajes para Taller · Clasificador PyME")
-    st.markdown(
-        "Pega el texto de un mensaje recibido en WhatsApp para clasificar su urgencia operativa, "
-        "extraer detalles técnicos y generar una respuesta profesional en tiempo real."
-    )
+    st.markdown("#### ⚡ Carga Rápida de Mensajes Típicos")
+    st.caption("Haz clic en cualquier caso para precargar el mensaje y datos de prueba:")
+
+    cols_presets = st.columns(4)
+    for idx, (nombre_preset, datos_preset) in enumerate(PRESET_MESSAGES.items()):
+        with cols_presets[idx % 4]:
+            if st.button(nombre_preset, use_container_width=True, key=f"preset_btn_{idx}"):
+                st.session_state["mensaje_input"] = datos_preset["texto"]
+                st.session_state["cliente_nombre_input"] = datos_preset["nombre"]
+                st.session_state["cliente_telefono_input"] = datos_preset["telefono"]
+                st.rerun()
+
+    st.markdown("---")
 
     col_nombre, col_telefono = st.columns(2)
     with col_nombre:
@@ -468,28 +624,29 @@ def renderizar_vista_clasificador(
             "👤 Nombre del cliente (opcional):",
             value=st.session_state.get("cliente_nombre_input", ""),
             placeholder="Ej: Juan Pérez",
-            key="cliente_nombre_input",
+            key="input_ia_nombre",
         )
     with col_telefono:
         telefono_ingresado = st.text_input(
             "📱 Teléfono de WhatsApp (opcional):",
             value=st.session_state.get("cliente_telefono_input", ""),
-            placeholder="Ej: +52 55 1234 5678 (con lada)",
-            key="cliente_telefono_input",
+            placeholder="Ej: +52 55 1234 5678",
+            key="input_ia_telefono",
         )
 
     mensaje_actual = st.text_area(
-        label="💬 Mensaje recibido del cliente:",
-        value=st.session_state["mensaje_input"],
-        height=140,
-        placeholder="Ej: Hola buenas, cuánto me cobran por cambiarle la pantalla a un Samsung A54?...",
+        label="💬 Mensaje de WhatsApp copiado del cliente:",
+        value=st.session_state.get("mensaje_input", ""),
+        height=130,
+        placeholder="Pega aquí el mensaje del cliente (ej: Hola buenas, cuánto cobran por cambiar la pantalla de un Samsung A54?)...",
+        key="input_ia_mensaje",
     )
 
     columna_analizar, columna_limpiar = st.columns([1, 4])
     with columna_analizar:
-        boton_analizar = st.button("⚡ Clasificar Mensaje", type="primary", use_container_width=True)
+        boton_analizar = st.button("🤖 Clasificar con Gemini IA", type="primary", use_container_width=True)
     with columna_limpiar:
-        if st.button("🗑️ Limpiar", use_container_width=False):
+        if st.button("🗑️ Limpiar Campos", use_container_width=False, key="btn_limpiar_ia"):
             st.session_state["mensaje_input"] = ""
             st.session_state["cliente_nombre_input"] = ""
             st.session_state["cliente_telefono_input"] = ""
@@ -504,7 +661,7 @@ def renderizar_vista_clasificador(
             return
 
         if not validar_coherencia_minima(texto_a_evaluar):
-            st.error("⚠️ **Mensaje no interpretable:** El texto ingresado no contiene palabras o frases comprensibles. Por favor, introduce una consulta legítima de WhatsApp.")
+            st.error("⚠️ **Mensaje no interpretable:** El texto ingresado no contiene palabras o frases comprensibles. Introduce una consulta legítima de WhatsApp.")
             return
 
         clave_api = obtener_clave_gemini()
@@ -525,7 +682,7 @@ def renderizar_vista_clasificador(
         )
 
         try:
-            with st.spinner("🤖 Analizando mensaje con Google Gemini..."):
+            with st.spinner("⚡ Analizando con Google Gemini 3.8 Flash..."):
                 resultado = ejecutar_clasificacion_gemini(
                     mensaje_texto=texto_a_evaluar,
                     clave_api=clave_api,
@@ -539,6 +696,7 @@ def renderizar_vista_clasificador(
 
                 registro_nuevo: RegistroHistorial = {
                     "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "metodo": "🤖 Gemini 3.8 Flash",
                     "cliente_nombre": nombre_resuelto,
                     "cliente_telefono": telefono_resuelto,
                     "mensaje_original": texto_a_evaluar,
@@ -574,6 +732,8 @@ def renderizar_vista_clasificador(
 
     resultado_activo = st.session_state.get("resultado_actual")
     if resultado_activo:
+        st.markdown("---")
+
         if resultado_activo["categoria"] == "No Interpretable":
             st.warning("⚠️ **Mensaje no concluyente:** La IA determinó que el texto no contiene una consulta técnica o comercial reconocible.")
             st.caption("Borrador sugerido para pedir aclaración:")
@@ -595,43 +755,41 @@ def renderizar_vista_clasificador(
                 use_container_width=False,
             )
         else:
-            st.markdown("---")
-            col_titulo, col_latencia = st.columns([3, 1])
-            with col_titulo:
-                st.subheader("📋 Resultado de la Clasificación")
-            with col_latencia:
-                thinking_usado = resultado_activo.get("nivel_thinking", "LOW")
-                tokens_usados = resultado_activo.get("tokens_limite", 1500)
-                st.caption(f"⚡ Inferencia: {resultado_activo['latencia_segundos']}s · {thinking_usado} ({tokens_usados}t)")
+            urg_estilo = (
+                "badge-alta" if "ALTA" in resultado_activo["urgencia"] else "badge-media" if "MEDIA" in resultado_activo["urgencia"] else "badge-baja"
+            )
 
-            col_urgencia, col_categoria = st.columns(2)
-            with col_urgencia:
-                if resultado_activo["urgencia_color"] == "error":
-                    st.error(f"**Urgencia:** {resultado_activo['urgencia']}")
-                elif resultado_activo["urgencia_color"] == "warning":
-                    st.warning(f"**Urgencia:** {resultado_activo['urgencia']}")
-                else:
-                    st.info(f"**Urgencia:** {resultado_activo['urgencia']}")
+            st.markdown(
+                f"""
+                <div class="card-taller">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.8rem;">
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span class="badge-chip {urg_estilo}">{resultado_activo['urgencia']}</span>
+                            <span style="font-weight: 700; color: #f1f5f9; font-size: 0.95rem;">🏷️ {resultado_activo['categoria']}</span>
+                        </div>
+                        <span class="telemetria-pill">⚡ Inferencia: {resultado_activo['latencia_segundos']}s · {resultado_activo['nivel_thinking']} ({resultado_activo['tokens_limite']}t)</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; color: #cbd5e1; font-size: 0.9rem;">
+                        <div>
+                            <strong>👤 Cliente:</strong> {resultado_activo['cliente_nombre']} &nbsp;|&nbsp; <strong>📱 Tel:</strong> {resultado_activo['cliente_telefono']}<br>
+                            <strong>⚠️ Falla reportada:</strong> {resultado_activo['falla_reportada']}
+                        </div>
+                        <div>
+                            <strong>📱 Dispositivo:</strong> {resultado_activo['dispositivo']}<br>
+                            <strong>🎯 Acción recomendada:</strong> {resultado_activo['accion_recomendada']}
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-            with col_categoria:
-                st.success(f"**Categoría:** {resultado_activo['categoria']}")
-
-            col_cliente, col_dispositivo = st.columns(2)
-            with col_cliente:
-                cliente_nom = resultado_activo.get("cliente_nombre", "No especificado")
-                cliente_tel = resultado_activo.get("cliente_telefono", "No registrado")
-                st.markdown(f"**👤 Cliente:** {cliente_nom} | **Tel:** {cliente_tel}")
-                st.markdown(f"**⚠️ Falla reportada:** {resultado_activo['falla_reportada']}")
-            with col_dispositivo:
-                st.markdown(f"**📱 Dispositivo identificado:** {resultado_activo['dispositivo']}")
-                st.markdown(f"**🎯 Acción recomendada en taller:** {resultado_activo['accion_recomendada']}")
-
-            st.markdown("### ✍️ Borrador de Respuesta para WhatsApp")
-            st.caption("Puedes previsualizar, editar o pulsar directamente para abrir la conversación en WhatsApp:")
+            st.markdown("##### ✍️ Borrador de Respuesta para WhatsApp")
+            st.caption("Previsualiza o ajusta el mensaje antes de enviarlo al chat:")
             borrador_actualizado = st.text_area(
                 label="Borrador de respuesta editable",
                 value=resultado_activo["borrador_respuesta"],
-                height=130,
+                height=125,
                 label_visibility="collapsed",
                 key="borrador_respuesta_whatsapp",
             )
@@ -653,8 +811,148 @@ def renderizar_vista_clasificador(
                 else:
                     st.caption("Abre WhatsApp para que elijas a cuál cliente enviar la respuesta precargada.")
 
+def renderizar_modo_manual() -> None:
+    st.markdown("#### ✍️ Registro de Mostrador y Triaje Manual")
+    st.caption("Ingresa y clasifica un caso directamente en el mostrador sin recurrir al asistente de IA:")
+
+    col_nom, col_tel = st.columns(2)
+    with col_nom:
+        nombre_manual = st.text_input(
+            "👤 Nombre del cliente:",
+            placeholder="Ej: Laura Sánchez",
+            key="manual_nombre",
+        )
+    with col_tel:
+        telefono_manual = st.text_input(
+            "📱 Teléfono de WhatsApp (con lada):",
+            placeholder="Ej: +525544332211",
+            key="manual_telefono",
+        )
+
+    col_urg, col_cat = st.columns(2)
+    with col_urg:
+        urgencia_opcion = st.selectbox(
+            "⚡ Nivel de Urgencia:",
+            options=["MEDIA", "ALTA / GARANTÍA CRÍTICA", "BAJA"],
+            index=0,
+            key="manual_urgencia",
+        )
+    with col_cat:
+        categoria_opcion = st.selectbox(
+            "🏷️ Categoría de Solicitud:",
+            options=[
+                "Cotización de Reparación",
+                "Estatus de Dispositivo",
+                "Garantía / Reclamo",
+                "Consulta General",
+            ],
+            index=0,
+            key="manual_categoria",
+        )
+
+    col_dev, col_falla = st.columns(2)
+    with col_dev:
+        dispositivo_manual = st.text_input(
+            "📱 Dispositivo (Marca y modelo):",
+            placeholder="Ej: iPhone 13 Pro Max",
+            key="manual_dispositivo",
+        )
+    with col_falla:
+        falla_manual = st.text_input(
+            "⚠️ Falla o síntoma reportado:",
+            placeholder="Ej: No carga, centro de carga flojo",
+            key="manual_falla",
+        )
+
+    accion_manual = st.text_input(
+        "🎯 Acción a tomar en taller:",
+        value="Revisión técnica en mostrador y apertura de orden de servicio",
+        key="manual_accion",
+    )
+
+    notas_cliente = st.text_area(
+        "💬 Mensaje o resumen del cliente:",
+        placeholder="Texto del cliente o descripción breve anotada por el técnico...",
+        height=90,
+        key="manual_notas",
+    )
+
+    plantilla_borrador_default = (
+        f"Hola {nombre_manual.strip() if nombre_manual.strip() else ''}, "
+        f"recibimos tu solicitud para el equipo {dispositivo_manual.strip() if dispositivo_manual.strip() else 'reportado'}. "
+        "Con gusto lo revisamos en mostrador para darte un diagnóstico formal. ¿Te gustaría agendar tu entrega hoy?"
+    )
+
+    st.markdown("##### ✍️ Borrador de Respuesta para WhatsApp")
+    borrador_manual = st.text_area(
+        label="Borrador manual editable",
+        value=plantilla_borrador_default,
+        height=110,
+        key="manual_borrador",
+    )
+
+    col_guardar, col_enviar_wa = st.columns([1, 2])
+    with col_guardar:
+        if st.button("💾 Guardar en Historial", type="primary", use_container_width=True):
+            nom_final = nombre_manual.strip() if nombre_manual.strip() else "No especificado"
+            tel_final = telefono_manual.strip() if telefono_manual.strip() else "No registrado"
+            dev_final = dispositivo_manual.strip() if dispositivo_manual.strip() else "No especificado"
+            fall_final = falla_manual.strip() if falla_manual.strip() else "Sin detalle"
+            msg_final = notas_cliente.strip() if notas_cliente.strip() else "Registro manual de mostrador"
+
+            registro_nuevo: RegistroHistorial = {
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "metodo": "✍️ Registro Manual",
+                "cliente_nombre": nom_final,
+                "cliente_telefono": tel_final,
+                "mensaje_original": msg_final,
+                "urgencia": urgencia_opcion,
+                "categoria": categoria_opcion,
+                "dispositivo": dev_final,
+                "falla_reportada": fall_final,
+                "accion_recomendada": accion_manual.strip(),
+                "borrador_respuesta": borrador_manual.strip(),
+                "latencia_segundos": 0.0,
+                "nivel_thinking": "N/A",
+                "tokens_limite": 0,
+            }
+            st.session_state["historial_mensajes"].insert(0, registro_nuevo)
+            st.success("✅ Caso manual guardado exitosamente en el historial.")
+            st.rerun()
+
+    with col_enviar_wa:
+        enlace_wa_manual = construir_enlace_whatsapp(telefono_manual, borrador_manual)
+        st.link_button(
+            label="📲 Abrir y Enviar en WhatsApp",
+            url=enlace_wa_manual,
+            use_container_width=True,
+        )
+
+def renderizar_vista_clasificador(
+    temperatura_seleccionada: float,
+    nivel_thinking_seleccionado: str,
+    limite_tokens_seleccionado: int,
+) -> None:
+    renderizar_encabezado_principal()
+
+    tab_ia, tab_manual = st.tabs([
+        "🤖 Asistente Gemini IA (Automático)",
+        "✍️ Triaje Manual de Mostrador",
+    ])
+
+    with tab_ia:
+        renderizar_modo_ia(
+            temperatura_seleccionada,
+            nivel_thinking_seleccionado,
+            limite_tokens_seleccionado,
+        )
+
+    with tab_manual:
+        renderizar_modo_manual()
+
 def main() -> None:
     configurar_pagina()
+    aplicar_estilos_taller()
 
     if "mensaje_input" not in st.session_state:
         st.session_state["mensaje_input"] = ""
