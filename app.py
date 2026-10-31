@@ -16,6 +16,8 @@ try:
     GENAI_DISPONIBLE = True
 except ImportError:
     GENAI_DISPONIBLE = False
+    genai = None  # type: ignore
+    types = None  # type: ignore
     class APIError(Exception):  # type: ignore
         code: Optional[int] = None
         message: str = ""
@@ -642,75 +644,102 @@ def ejecutar_clasificacion_gemini(
                 accion_sugerida="Comprueba que la clave GEMINI_API_KEY tenga formato válido."
             )
 
-    configuracion = None
-    if nivel_thinking != "OFF":
-        try:
-            configuracion = types.GenerateContentConfig(
-                system_instruction=PROMPT_SISTEMA_OPERATIVO,
-                response_mime_type="application/json",
-                temperature=temperatura,
-                max_output_tokens=limite_tokens,
-                thinking_config=types.ThinkingConfig(thinking_level=nivel_thinking),
-            )
-        except Exception:
+    todos_modelos = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash"]
+    modelos_candidatos = [modelo_preferido] + [m for m in todos_modelos if m != modelo_preferido]
+
+    ultimo_error: Optional[Exception] = None
+    respuesta = None
+    modelo_utilizado = modelo_preferido
+    auto_recuperado = False
+
+    for modelo_evaluar in modelos_candidatos:
+        soporta_thinking = "2.0" in modelo_evaluar and nivel_thinking != "OFF"
+        tokens_efectivos = max(limite_tokens, 3500) if soporta_thinking else limite_tokens
+
+        configuracion = None
+        if soporta_thinking:
             try:
                 configuracion = types.GenerateContentConfig(
                     system_instruction=PROMPT_SISTEMA_OPERATIVO,
                     response_mime_type="application/json",
                     temperature=temperatura,
-                    max_output_tokens=limite_tokens,
-                    thinking_config={"thinking_level": nivel_thinking},
+                    max_output_tokens=tokens_efectivos,
+                    thinking_config=types.ThinkingConfig(thinking_level=nivel_thinking),
                 )
             except Exception:
                 configuracion = types.GenerateContentConfig(
                     system_instruction=PROMPT_SISTEMA_OPERATIVO,
                     response_mime_type="application/json",
                     temperature=temperatura,
-                    max_output_tokens=limite_tokens,
+                    max_output_tokens=tokens_efectivos,
                 )
-    else:
-        configuracion = types.GenerateContentConfig(
-            system_instruction=PROMPT_SISTEMA_OPERATIVO,
-            response_mime_type="application/json",
-            temperature=temperatura,
-            max_output_tokens=limite_tokens,
-        )
+        else:
+            configuracion = types.GenerateContentConfig(
+                system_instruction=PROMPT_SISTEMA_OPERATIVO,
+                response_mime_type="application/json",
+                temperature=temperatura,
+                max_output_tokens=tokens_efectivos,
+            )
 
-    ultimo_error: Optional[Exception] = None
-    respuesta = None
-    modelo_utilizado = modelo_preferido
-
-    todos_modelos = ["gemini-1.5-flash", "gemini-2.0-flash"]
-    modelos_candidatos = [modelo_preferido] + [m for m in todos_modelos if m != modelo_preferido]
-
-    for modelo_evaluar in modelos_candidatos:
         try:
-            respuesta = cliente_genai.models.generate_content(
+            res_intento = cliente_genai.models.generate_content(
                 model=modelo_evaluar,
                 contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
                 config=configuracion,
             )
-            if respuesta and respuesta.text:
+            if res_intento and hasattr(res_intento, "text") and res_intento.text and res_intento.text.strip():
+                respuesta = res_intento
                 modelo_utilizado = modelo_evaluar
                 break
         except Exception as error_intento:
             ultimo_error = error_intento
             detalle_intento = str(error_intento)
 
-            if any(k in detalle_intento for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
+            if any(k in detalle_intento for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "UNAUTHENTICATED", "401", "403")):
                 raise ErrorAutenticacionAPI("Clave de API inválida o denegada.")
 
-            # Si el modelo da timeout, 404, 429 o 503, saltar de inmediato al siguiente modelo
             continue
 
-    if not respuesta or not respuesta.text:
+    texto_respuesta_valido = False
+    if respuesta and hasattr(respuesta, "text") and respuesta.text:
+        try:
+            if respuesta.text.strip():
+                texto_respuesta_valido = True
+        except Exception:
+            texto_respuesta_valido = False
+
+    if not texto_respuesta_valido:
+        for modelo_rescate in ["gemini-1.5-flash", "gemini-1.5-flash-8b"]:
+            try:
+                config_rescate = types.GenerateContentConfig(
+                    system_instruction=PROMPT_SISTEMA_OPERATIVO,
+                    response_mime_type="application/json",
+                    temperature=0.2,
+                    max_output_tokens=1500,
+                )
+                res_rescate = cliente_genai.models.generate_content(
+                    model=modelo_rescate,
+                    contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
+                    config=config_rescate,
+                )
+                if res_rescate and hasattr(res_rescate, "text") and res_rescate.text and res_rescate.text.strip():
+                    respuesta = res_rescate
+                    modelo_utilizado = modelo_rescate
+                    auto_recuperado = True
+                    texto_respuesta_valido = True
+                    break
+            except Exception as error_rescate:
+                ultimo_error = error_rescate
+                continue
+
+    if not texto_respuesta_valido or not respuesta:
         if ultimo_error:
             detalle_u = str(ultimo_error)
             if "RESOURCE_EXHAUSTED" in detalle_u or "429" in detalle_u:
                 raise ErrorCuotaExcedida("Límite de cuota alcanzado (HTTP 429).")
             elif "UNAVAILABLE" in detalle_u or "503" in detalle_u:
                 raise ErrorServidorSaturado("Servidores de Gemini saturados (HTTP 503).")
-            elif any(k in detalle_u for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
+            elif any(k in detalle_u for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "UNAUTHENTICATED", "401", "403")):
                 raise ErrorAutenticacionAPI("Clave de API no válida o rechazada.")
             else:
                 raise ErrorRespuestaVacia("La API devolvió una respuesta vacía o sin texto legible.")
@@ -719,6 +748,7 @@ def ejecutar_clasificacion_gemini(
     datos_json = limpiar_y_parsear_json_gemini(respuesta.text)
 
     latencia_total = round(time.perf_counter() - tiempo_inicio, 2)
+    sufijo_recuperado = " (Auto-Recuperado Turbo)" if auto_recuperado else ""
 
     return {
         "urgencia": datos_json["urgencia"],
@@ -733,7 +763,7 @@ def ejecutar_clasificacion_gemini(
         "cliente_telefono": telefono_cliente,
         "nivel_thinking": nivel_thinking,
         "tokens_limite": limite_tokens,
-        "metodo": f"🤖 {modelo_utilizado}",
+        "metodo": f"🤖 {modelo_utilizado}{sufijo_recuperado}",
         "taller": taller_origen,
     }
 
@@ -929,11 +959,12 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             modelo_opcion = st.selectbox(
                 "Motor de Inferencia Gemini:",
                 options=[
-                    "gemini-1.5-flash (Ultra Rápido · Producción)",
-                    "gemini-2.0-flash (Experimental)",
+                    "gemini-1.5-flash (Ultra Rápido · Producción ~0.8s)",
+                    "gemini-1.5-flash-8b (Flash-Lite · Máxima Velocidad ~0.4s)",
+                    "gemini-2.0-flash (Experimental · Próxima Generación)",
                 ],
                 index=0,
-                help="gemini-1.5-flash es el modelo de producción oficial de Google de menor latencia (~0.8s) y mayor estabilidad para JSON.",
+                help="gemini-1.5-flash y 1.5-flash-8b son los motores recomendados para clasificación de texto por su latencia sub-segundo y máxima estabilidad JSON.",
             )
             modelo_seleccionado = modelo_opcion.split(" ")[0]
 
@@ -1038,7 +1069,7 @@ def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
     except Exception:
         return "timestamp,taller,error\n00:00:00,General,Error al exportar registros"
 
-def renderizar_encabezado_principal() -> None:
+def renderizar_encabezado_principal(modelo_activo: str = "gemini-1.5-flash") -> None:
     taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
     st.markdown(
         f"""
@@ -1055,7 +1086,7 @@ def renderizar_encabezado_principal() -> None:
                 </div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                     <span class="telemetria-pill">🟢 Taller Online</span>
-                    <span class="telemetria-pill">🤖 Gemini 3.8 Flash</span>
+                    <span class="telemetria-pill">🤖 {modelo_activo}</span>
                 </div>
             </div>
         </div>
@@ -1821,7 +1852,7 @@ def renderizar_vista_clasificador(
     limite_tokens_seleccionado: int,
     modelo_seleccionado: str = "gemini-1.5-flash",
 ) -> None:
-    renderizar_encabezado_principal()
+    renderizar_encabezado_principal(modelo_seleccionado)
 
     tab_ia, tab_manual = st.tabs([
         "🤖 Asistente Gemini IA (Automático)",
