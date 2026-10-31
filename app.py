@@ -899,20 +899,25 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
         st.markdown("---")
 
         st.subheader("🧭 Módulos del Sistema")
-        etiqueta_historial = f"📚 Registro Histórico ({conteo_historial})"
         opciones_menu = [
             "🛠️ Terminal de Triaje",
             "💵 Tarifario y Catálogo",
             "🧮 Calculadora de Cotizaciones",
             "📋 Checklist de Recepción",
-            etiqueta_historial,
+            "📚 Registro Histórico",
         ]
+        if "radio_modulo_seleccionado" not in st.session_state:
+            st.session_state["radio_modulo_seleccionado"] = opciones_menu[0]
+
         vista_seleccionada = st.radio(
             "Selecciona el módulo a operar:",
             options=opciones_menu,
-            index=0,
+            key="radio_modulo_seleccionado",
             label_visibility="collapsed",
         )
+
+        if conteo_historial > 0:
+            st.caption(f"📁 **{conteo_historial}** casos registrados en la sesión actual.")
 
         if "Terminal" in vista_seleccionada:
             modo_vista = "clasificador"
@@ -1170,22 +1175,44 @@ def renderizar_vista_historial() -> None:
         except Exception:
             st.warning(f"⚠️ No fue posible renderizar la ficha #{len(historial) - indice}.")
 
+def callback_cargar_preset_ia(texto: str, nombre: str, telefono: str) -> None:
+    st.session_state["input_ia_mensaje"] = texto
+    st.session_state["input_ia_nombre"] = nombre
+    st.session_state["input_ia_telefono"] = telefono
+    st.session_state["mensaje_input"] = texto
+    st.session_state["cliente_nombre_input"] = nombre
+    st.session_state["cliente_telefono_input"] = telefono
+    st.session_state["disparar_clasificacion_automatica"] = True
+
+def callback_limpiar_formulario_ia() -> None:
+    st.session_state["input_ia_mensaje"] = ""
+    st.session_state["input_ia_nombre"] = ""
+    st.session_state["input_ia_telefono"] = ""
+    st.session_state["mensaje_input"] = ""
+    st.session_state["cliente_nombre_input"] = ""
+    st.session_state["cliente_telefono_input"] = ""
+    st.session_state["resultado_actual"] = None
+    st.session_state["mostrar_bloque_copia"] = False
+
 def renderizar_modo_ia(
     temperatura_seleccionada: float,
     nivel_thinking_seleccionado: str,
     limite_tokens_seleccionado: int,
 ) -> None:
-    st.markdown("#### ⚡ Carga Rápida de Mensajes Típicos")
-    st.caption("Haz clic en cualquier caso para precargar el mensaje y datos de prueba:")
+    st.markdown("#### ⚡ Acciones Rápidas · Casos Frecuentes")
+    st.caption("Selecciona cualquier caso para precargar datos y clasificar automáticamente en 1 clic:")
 
     cols_presets = st.columns(4)
     for idx, (nombre_preset, datos_preset) in enumerate(PRESET_MESSAGES.items()):
         with cols_presets[idx % 4]:
-            if st.button(nombre_preset, use_container_width=True, key=f"preset_btn_{idx}"):
-                st.session_state["mensaje_input"] = datos_preset["texto"]
-                st.session_state["cliente_nombre_input"] = datos_preset["nombre"]
-                st.session_state["cliente_telefono_input"] = datos_preset["telefono"]
-                st.rerun()
+            st.button(
+                nombre_preset,
+                use_container_width=True,
+                key=f"preset_btn_{idx}",
+                on_click=callback_cargar_preset_ia,
+                args=(datos_preset["texto"], datos_preset["nombre"], datos_preset["telefono"]),
+                help=f"Precargar y clasificar: {datos_preset['texto'][:60]}...",
+            )
 
     st.markdown("---")
 
@@ -1193,21 +1220,18 @@ def renderizar_modo_ia(
     with col_nombre:
         nombre_ingresado = st.text_input(
             "👤 Nombre del cliente (opcional):",
-            value=st.session_state.get("cliente_nombre_input", ""),
             placeholder="Ej: Juan Pérez",
             key="input_ia_nombre",
         )
     with col_telefono:
         telefono_ingresado = st.text_input(
             "📱 Teléfono de WhatsApp (opcional):",
-            value=st.session_state.get("cliente_telefono_input", ""),
             placeholder="Ej: +52 55 1234 5678",
             key="input_ia_telefono",
         )
 
     mensaje_actual = st.text_area(
         label="💬 Mensaje de WhatsApp copiado del cliente:",
-        value=st.session_state.get("mensaje_input", ""),
         height=130,
         placeholder="Pega aquí el mensaje del cliente (ej: Hola buenas, cuánto cobran por cambiar la pantalla de un Samsung A54?)...",
         key="input_ia_mensaje",
@@ -1217,16 +1241,18 @@ def renderizar_modo_ia(
     with columna_analizar:
         boton_analizar = st.button("🤖 Clasificar con Gemini IA", type="primary", use_container_width=True)
     with columna_limpiar:
-        if st.button("🗑️ Limpiar Campos", use_container_width=False, key="btn_limpiar_ia"):
-            st.session_state["mensaje_input"] = ""
-            st.session_state["cliente_nombre_input"] = ""
-            st.session_state["cliente_telefono_input"] = ""
-            st.session_state["resultado_actual"] = None
-            st.rerun()
+        st.button(
+            "🗑️ Limpiar Campos",
+            use_container_width=False,
+            key="btn_limpiar_ia",
+            on_click=callback_limpiar_formulario_ia,
+        )
 
     taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
 
-    if boton_analizar:
+    disparar_auto = st.session_state.pop("disparar_clasificacion_automatica", False)
+
+    if boton_analizar or disparar_auto:
         texto_a_evaluar = mensaje_actual.strip()
 
         if not texto_a_evaluar:
@@ -1446,19 +1472,44 @@ def renderizar_modo_ia(
             telefono_destino = resultado_activo.get("cliente_telefono", "No registrado")
             enlace_wa = construir_enlace_whatsapp(telefono_destino, borrador_actualizado)
 
-            col_btn_wa, col_nota_wa = st.columns([1, 2])
-            with col_btn_wa:
+            st.markdown("##### ⚡ Acciones Rápidas del Caso")
+            col_act1, col_act2, col_act3, col_act4 = st.columns(4)
+            with col_act1:
                 st.link_button(
-                    label="📲 Abrir y Enviar en WhatsApp",
+                    label="📲 Enviar WhatsApp",
                     url=enlace_wa,
                     type="primary",
                     use_container_width=True,
                 )
-            with col_nota_wa:
-                if telefono_destino != "No registrado":
-                    st.caption(f"Abre WhatsApp con el chat de **{telefono_destino}** y la respuesta precargada.")
-                else:
-                    st.caption("Abre WhatsApp para que elijas a cuál cliente enviar la respuesta precargada.")
+            with col_act2:
+                if st.button("📋 Copiar Respuesta", use_container_width=True, key="btn_copiar_borrador"):
+                    st.session_state["mostrar_bloque_copia"] = not st.session_state.get("mostrar_bloque_copia", False)
+                    st.rerun()
+            with col_act3:
+                if st.button("🧮 Cotizar en Calculadora", use_container_width=True, key="btn_llevar_calculadora"):
+                    st.session_state["calc_equipo"] = resultado_activo.get("dispositivo", "")
+                    st.session_state["calc_concepto"] = resultado_activo.get("falla_reportada", "")
+                    tel_val = resultado_activo.get("cliente_telefono", "")
+                    st.session_state["calc_tel"] = tel_val if tel_val != "No registrado" else ""
+                    st.session_state["radio_modulo_seleccionado"] = "🧮 Calculadora de Cotizaciones"
+                    st.rerun()
+            with col_act4:
+                if st.button("📋 Abrir Checklist", use_container_width=True, key="btn_abrir_checklist"):
+                    nom_val = resultado_activo.get("cliente_nombre", "")
+                    st.session_state["ch_cliente"] = nom_val if nom_val != "No especificado" else ""
+                    dev_val = resultado_activo.get("dispositivo", "")
+                    st.session_state["ch_equipo"] = dev_val if dev_val != "No identificable" else ""
+                    tel_val = resultado_activo.get("cliente_telefono", "")
+                    st.session_state["ch_tel"] = tel_val if tel_val != "No registrado" else ""
+                    st.session_state["radio_modulo_seleccionado"] = "📋 Checklist de Recepción"
+                    st.rerun()
+
+            if st.session_state.get("mostrar_bloque_copia", False):
+                st.code(borrador_actualizado, language="text")
+                st.caption("💡 Haz clic en el icono superior derecho del cuadro gris para copiar el texto al portapapeles.")
+
+            if telefono_destino != "No registrado":
+                st.caption(f"📲 WhatsApp configurado para abrir el chat de **{telefono_destino}** con el borrador precargado.")
 
 def renderizar_modo_manual() -> None:
     taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
@@ -1795,6 +1846,18 @@ def main() -> None:
         return
 
     aplicar_estilos_taller()
+
+    if "input_ia_mensaje" not in st.session_state:
+        st.session_state["input_ia_mensaje"] = ""
+
+    if "input_ia_nombre" not in st.session_state:
+        st.session_state["input_ia_nombre"] = ""
+
+    if "input_ia_telefono" not in st.session_state:
+        st.session_state["input_ia_telefono"] = ""
+
+    if "radio_modulo_seleccionado" not in st.session_state:
+        st.session_state["radio_modulo_seleccionado"] = "🛠️ Terminal de Triaje"
 
     if "mensaje_input" not in st.session_state:
         st.session_state["mensaje_input"] = ""
