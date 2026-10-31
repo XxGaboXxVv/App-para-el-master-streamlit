@@ -16,6 +16,41 @@ try:
     GENAI_DISPONIBLE = True
 except ImportError:
     GENAI_DISPONIBLE = False
+    class APIError(Exception):  # type: ignore
+        code: Optional[int] = None
+        message: str = ""
+
+class ErrorOperativoTaller(Exception):
+    def __init__(self, mensaje: str, accion_sugerida: str = "") -> None:
+        super().__init__(mensaje)
+        self.mensaje = mensaje
+        self.accion_sugerida = accion_sugerida
+
+class ErrorCuotaExcedida(ErrorOperativoTaller):
+    pass
+
+class ErrorServidorSaturado(ErrorOperativoTaller):
+    pass
+
+class ErrorAutenticacionAPI(ErrorOperativoTaller):
+    pass
+
+class ErrorConexionRed(ErrorOperativoTaller):
+    pass
+
+class ErrorRespuestaVacia(ErrorOperativoTaller):
+    pass
+
+class ErrorFormatoInvalido(ErrorOperativoTaller):
+    pass
+
+class DiagnosticoIncidencia(TypedDict):
+    categoria: str
+    titulo: str
+    descripcion: str
+    accion_sugerida: str
+    icono: str
+    es_recuperable_manual: bool
 
 class ResultadoClasificacion(TypedDict):
     urgencia: str
@@ -315,11 +350,14 @@ def resolver_datos_contacto(
     return nombre_final, telefono_final
 
 def construir_enlace_whatsapp(telefono: str, texto_respuesta: str) -> str:
-    digitos_telefono = re.sub(r"[^\d]", "", telefono)
-    texto_codificado = urllib.parse.quote(texto_respuesta)
-    if len(digitos_telefono) >= 7:
-        return f"https://wa.me/{digitos_telefono}?text={texto_codificado}"
-    return f"https://wa.me/?text={texto_codificado}"
+    try:
+        digitos_telefono = re.sub(r"[^\d]", "", str(telefono or ""))
+        texto_codificado = urllib.parse.quote(str(texto_respuesta or ""))
+        if len(digitos_telefono) >= 7:
+            return f"https://wa.me/{digitos_telefono}?text={texto_codificado}"
+        return f"https://wa.me/?text={texto_codificado}"
+    except Exception:
+        return "https://wa.me/"
 
 def obtener_clave_gemini() -> Optional[str]:
     try:
@@ -330,11 +368,250 @@ def obtener_clave_gemini() -> Optional[str]:
     except Exception:
         pass
 
-    clave_entorno = os.environ.get("GEMINI_API_KEY")
-    if clave_entorno and clave_entorno.strip():
-        return clave_entorno.strip()
+    try:
+        clave_entorno = os.environ.get("GEMINI_API_KEY")
+        if clave_entorno and clave_entorno.strip():
+            return clave_entorno.strip()
+    except Exception:
+        pass
 
     return None
+
+def limpiar_y_parsear_json_gemini(texto_crudo: str) -> dict[str, str]:
+    if not texto_crudo or not texto_crudo.strip():
+        raise ErrorRespuestaVacia("El modelo devolvió una respuesta vacía sin texto.")
+
+    texto_limpio = texto_crudo.strip()
+    if texto_limpio.startswith("```json"):
+        texto_limpio = texto_limpio[7:]
+    elif texto_limpio.startswith("```"):
+        texto_limpio = texto_limpio[3:]
+    if texto_limpio.endswith("```"):
+        texto_limpio = texto_limpio[:-3]
+    texto_limpio = texto_limpio.strip()
+
+    datos: Optional[dict[str, object]] = None
+    try:
+        resultado = json.loads(texto_limpio)
+        if isinstance(resultado, dict):
+            datos = resultado
+    except json.JSONDecodeError:
+        pass
+
+    if datos is None:
+        inicio = texto_limpio.find("{")
+        fin = texto_limpio.rfind("}")
+        if inicio != -1 and fin != -1 and fin > inicio:
+            try:
+                resultado = json.loads(texto_limpio[inicio : fin + 1])
+                if isinstance(resultado, dict):
+                    datos = resultado
+            except json.JSONDecodeError:
+                pass
+
+    if datos is None:
+        raise ErrorFormatoInvalido(
+            "La respuesta del modelo de IA no pudo ser interpretada en formato JSON válido.",
+            accion_sugerida="Reintenta la consulta o ajusta los parámetros de temperatura y límite de tokens."
+        )
+
+    urgencia = str(datos.get("urgencia", "BAJA")).strip()
+    if not urgencia:
+        urgencia = "BAJA"
+
+    categoria = str(datos.get("categoria", "Consulta General")).strip()
+    if not categoria:
+        categoria = "Consulta General"
+
+    dispositivo = str(datos.get("dispositivo", "No especificado")).strip()
+    if not dispositivo:
+        dispositivo = "No especificado"
+
+    falla = str(datos.get("falla_reportada", "Sin detalle")).strip()
+    if not falla:
+        falla = "Sin detalle"
+
+    accion = str(datos.get("accion_recomendada", "Revisión técnica en mostrador")).strip()
+    if not accion:
+        accion = "Revisión técnica en mostrador"
+
+    borrador = str(datos.get("borrador_respuesta", "")).strip()
+    if not borrador:
+        borrador = "Hola, recibimos tu mensaje en taller. Con gusto te ayudamos con tu equipo."
+
+    color = str(datos.get("urgencia_color", "")).strip().lower()
+    if color not in ("error", "warning", "info"):
+        color = "error" if "ALTA" in urgencia else "warning" if "MEDIA" in urgencia else "info"
+
+    return {
+        "urgencia": urgencia,
+        "urgencia_color": color,
+        "categoria": categoria,
+        "dispositivo": dispositivo,
+        "falla_reportada": falla,
+        "accion_recomendada": accion,
+        "borrador_respuesta": borrador,
+    }
+
+def clasificar_excepcion_operativa(excepcion: Exception) -> DiagnosticoIncidencia:
+    mensaje_error = str(excepcion)
+    nombre_tipo = type(excepcion).__name__
+
+    if (
+        isinstance(excepcion, ErrorCuotaExcedida)
+        or "429" in mensaje_error
+        or "RESOURCE_EXHAUSTED" in mensaje_error
+        or getattr(excepcion, "code", None) == 429
+    ):
+        return {
+            "categoria": "Cuota de Servicio",
+            "titulo": "Límite de Consultas de IA Alcanzado (HTTP 429)",
+            "descripcion": (
+                "La clave gratuita de Google AI Studio ha alcanzado el límite de peticiones por minuto. "
+                "Los servidores de Google han pausado temporalmente nuevas solicitudes automáticas."
+            ),
+            "accion_sugerida": (
+                "Espera 60 segundos antes de volver a consultar, o utiliza la pestaña '✍️ Triaje Manual de Mostrador' "
+                "para registrar y despachar al cliente de inmediato sin depender de la nube."
+            ),
+            "icono": "⏳",
+            "es_recuperable_manual": True,
+        }
+
+    if (
+        isinstance(excepcion, ErrorServidorSaturado)
+        or "503" in mensaje_error
+        or "UNAVAILABLE" in mensaje_error
+        or getattr(excepcion, "code", None) == 503
+    ):
+        return {
+            "categoria": "Disponibilidad del Servidor",
+            "titulo": "Servidores de Google Gemini en Alta Demanda (HTTP 503)",
+            "descripcion": (
+                "Los centros de datos de Google están experimentando una sobrecarga temporal de tráfico. "
+                "El sistema ejecutó un reintento automático pero el servicio continúa congestionado."
+            ),
+            "accion_sugerida": (
+                "Por favor, aguarda entre 10 y 15 segundos y presiona nuevamente 'Clasificar con Gemini IA'. "
+                "Si la atención en mostrador apremia, puedes registrar el caso manualmente en la pestaña contigua."
+            ),
+            "icono": "⚡",
+            "es_recuperable_manual": True,
+        }
+
+    if (
+        isinstance(excepcion, ErrorAutenticacionAPI)
+        or "API_KEY_INVALID" in mensaje_error
+        or "PERMISSION_DENIED" in mensaje_error
+        or "INVALID_ARGUMENT" in mensaje_error
+        or "401" in mensaje_error
+        or "403" in mensaje_error
+        or getattr(excepcion, "code", None) in (400, 401, 403)
+    ):
+        return {
+            "categoria": "Autenticación y Credenciales",
+            "titulo": "Credenciales de Google AI Rechazadas",
+            "descripcion": (
+                "La clave de API (GEMINI_API_KEY) configurada en los secretos del taller no es válida, "
+                "está suspendida o carece de permisos para el modelo activo."
+            ),
+            "accion_sugerida": (
+                "Verifica la configuración de 'GEMINI_API_KEY' en el panel de Streamlit Cloud (Settings > Secrets) "
+                "o en tu archivo local .streamlit/secrets.toml. Mientras tanto, el Triaje Manual está 100% operativo."
+            ),
+            "icono": "🔑",
+            "es_recuperable_manual": True,
+        }
+
+    patrones_red = ("connect", "timeout", "socket", "gaierror", "connectionrefused", "httpx", "urllib", "network")
+    if (
+        isinstance(excepcion, ErrorConexionRed)
+        or any(p in mensaje_error.lower() for p in patrones_red)
+        or any(p in nombre_tipo.lower() for p in patrones_red)
+    ):
+        return {
+            "categoria": "Conectividad de Red",
+            "titulo": "Imposible Conectar con el Servicio de IA",
+            "descripcion": (
+                "La estación de trabajo no pudo establecer comunicación con los servidores de Google. "
+                "Puede deberse a pérdida de internet local, problemas de DNS o restricciones de red."
+            ),
+            "accion_sugerida": (
+                "Comprueba la conexión a internet de tu equipo. Si la falla persiste, puedes seguir atendiendo "
+                "clientes usando la modalidad de Triaje Manual de Mostrador."
+            ),
+            "icono": "🌐",
+            "es_recuperable_manual": True,
+        }
+
+    if isinstance(excepcion, ErrorRespuestaVacia) or "respuesta vacía" in mensaje_error.lower():
+        return {
+            "categoria": "Parámetros de Inferencia",
+            "titulo": "Respuesta Truncada o Sin Contenido",
+            "descripcion": (
+                "El modelo de IA agotó su cuota de razonamiento interno antes de emitir la ficha en formato estructurado. "
+                "Esto suele ocurrir cuando el límite de tokens es muy bajo para el nivel de pensamiento seleccionado."
+            ),
+            "accion_sugerida": (
+                "Aumenta el control de 'Límite de tokens de salida' a 2,000 o 2,500 en la barra lateral izquierda, "
+                "o ajusta el 'Nivel de razonamiento (Thinking)' a LOW para acelerar la respuesta."
+            ),
+            "icono": "📏",
+            "es_recuperable_manual": True,
+        }
+
+    if isinstance(excepcion, (ErrorFormatoInvalido, json.JSONDecodeError)):
+        return {
+            "categoria": "Formato de Datos",
+            "titulo": "Respuesta No Deserializable",
+            "descripcion": (
+                "El modelo devolvió una respuesta pero no se pudo estructurar en los campos requeridos para la ficha técnica."
+            ),
+            "accion_sugerida": (
+                "Presiona 'Clasificar con Gemini IA' de nuevo para solicitar una nueva generación. "
+                "Si el mensaje original del cliente es muy complejo, prueba dividiéndolo en dos frases."
+            ),
+            "icono": "🧩",
+            "es_recuperable_manual": True,
+        }
+
+    return {
+        "categoria": "Incidencia Operativa",
+        "titulo": "Incidencia al Procesar la Consulta",
+        "descripcion": (
+            f"Se produjo un evento no contemplado durante la ejecución ({nombre_tipo}). "
+            "El sistema ha protegido los datos de la sesión para evitar pérdida de información."
+        ),
+        "accion_sugerida": (
+            "Puedes reintentar la operación o alternar a la pestaña de '✍️ Triaje Manual de Mostrador' "
+            "para despachar al cliente de inmediato sin interrupciones."
+        ),
+        "icono": "🛡️",
+        "es_recuperable_manual": True,
+    }
+
+def renderizar_alerta_incidencia(diagnostico: DiagnosticoIncidencia) -> None:
+    st.markdown(
+        f"""
+        <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 1.25rem 1.4rem; margin: 1.2rem 0; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                <span style="font-size: 1.5rem;">{diagnostico['icono']}</span>
+                <div>
+                    <span style="font-size: 0.72rem; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.08em; color: #f87171; font-weight: 700;">{diagnostico['categoria']}</span>
+                    <h4 style="margin: 0; color: #fecaca; font-weight: 800; font-size: 1.05rem;">{diagnostico['titulo']}</h4>
+                </div>
+            </div>
+            <p style="color: #cbd5e1; font-size: 0.92rem; margin: 0.4rem 0 0.85rem 0; line-height: 1.5;">
+                {diagnostico['descripcion']}
+            </p>
+            <div style="background: rgba(15, 23, 42, 0.7); border-left: 3px solid #38bdf8; padding: 0.7rem 0.95rem; border-radius: 8px;">
+                <strong style="color: #38bdf8; font-size: 0.85rem;">💡 Acción recomendada para el técnico:</strong>
+                <p style="margin: 0.25rem 0 0 0; color: #f1f5f9; font-size: 0.88rem; line-height: 1.4;">{diagnostico['accion_sugerida']}</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def ejecutar_clasificacion_gemini(
     mensaje_texto: str,
@@ -347,7 +624,14 @@ def ejecutar_clasificacion_gemini(
     taller_origen: str = "Taller Central · FixLab",
 ) -> ResultadoClasificacion:
     tiempo_inicio = time.perf_counter()
-    cliente_genai = genai.Client(api_key=clave_api)
+
+    try:
+        cliente_genai = genai.Client(api_key=clave_api)
+    except Exception as error_cliente:
+        raise ErrorAutenticacionAPI(
+            f"Fallo al inicializar cliente de Google GenAI: {error_cliente}",
+            accion_sugerida="Comprueba que la clave GEMINI_API_KEY tenga formato válido."
+        )
 
     configuracion = None
     try:
@@ -368,12 +652,18 @@ def ejecutar_clasificacion_gemini(
                 thinking_config={"thinking_level": nivel_thinking},
             )
         except Exception:
-            configuracion = types.GenerateContentConfig(
-                system_instruction=PROMPT_SISTEMA_OPERATIVO,
-                response_mime_type="application/json",
-                temperature=temperatura,
-                max_output_tokens=limite_tokens,
-            )
+            try:
+                configuracion = types.GenerateContentConfig(
+                    system_instruction=PROMPT_SISTEMA_OPERATIVO,
+                    response_mime_type="application/json",
+                    temperature=temperatura,
+                    max_output_tokens=limite_tokens,
+                )
+            except Exception as error_cfg:
+                raise ErrorOperativoTaller(
+                    f"No fue posible construir los parámetros de configuración de inferencia: {error_cfg}",
+                    accion_sugerida="Restaura los parámetros en la barra lateral a sus valores por defecto."
+                )
 
     ultimo_error: Optional[Exception] = None
     respuesta = None
@@ -390,33 +680,48 @@ def ejecutar_clasificacion_gemini(
         except Exception as error_intento:
             ultimo_error = error_intento
             detalle_intento = str(error_intento)
+            nombre_error = type(error_intento).__name__
+
             if ("503" in detalle_intento or "UNAVAILABLE" in detalle_intento) and intento == 0:
                 time.sleep(2)
                 continue
-            raise error_intento
+
+            if "RESOURCE_EXHAUSTED" in detalle_intento or "429" in detalle_intento:
+                raise ErrorCuotaExcedida("Límite de cuota alcanzado (HTTP 429).")
+            elif "UNAVAILABLE" in detalle_intento or "503" in detalle_intento:
+                raise ErrorServidorSaturado("Servidor de inferencia en alta demanda (HTTP 503).")
+            elif any(k in detalle_intento for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
+                raise ErrorAutenticacionAPI("Clave de API inválida o denegada.")
+            elif any(k in detalle_intento.lower() or k in nombre_error.lower() for k in ("connect", "timeout", "socket", "gaierror")):
+                raise ErrorConexionRed(f"Fallo de conexión de red: {error_intento}")
+            else:
+                raise error_intento
 
     if not respuesta or not respuesta.text:
         if ultimo_error:
-            raise ultimo_error
-        raise ValueError("La API de Gemini devolvió una respuesta vacía.")
+            detalle_u = str(ultimo_error)
+            if "RESOURCE_EXHAUSTED" in detalle_u or "429" in detalle_u:
+                raise ErrorCuotaExcedida("Límite de cuota alcanzado (HTTP 429).")
+            elif "UNAVAILABLE" in detalle_u or "503" in detalle_u:
+                raise ErrorServidorSaturado("Servidores de Gemini saturados (HTTP 503).")
+            elif any(k in detalle_u for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
+                raise ErrorAutenticacionAPI("Clave de API no válida o rechazada.")
+            else:
+                raise ErrorRespuestaVacia("La API devolvió una respuesta vacía o sin texto legible.")
+        raise ErrorRespuestaVacia("La API devolvió una respuesta vacía o sin texto legible.")
 
-    datos_json: dict[str, str] = json.loads(respuesta.text)
-
-    urgencia = str(datos_json.get("urgencia", "BAJA"))
-    color = str(datos_json.get("urgencia_color", "info"))
-    if color not in ["error", "warning", "info"]:
-        color = "error" if "ALTA" in urgencia else "warning" if "MEDIA" in urgencia else "info"
+    datos_json = limpiar_y_parsear_json_gemini(respuesta.text)
 
     latencia_total = round(time.perf_counter() - tiempo_inicio, 2)
 
     return {
-        "urgencia": urgencia,
-        "urgencia_color": color,
-        "categoria": str(datos_json.get("categoria", "Consulta General")),
-        "dispositivo": str(datos_json.get("dispositivo", "No especificado")),
-        "falla_reportada": str(datos_json.get("falla_reportada", "Sin detalle")),
-        "accion_recomendada": str(datos_json.get("accion_recomendada", "Revisión en mostrador")),
-        "borrador_respuesta": str(datos_json.get("borrador_respuesta", "")),
+        "urgencia": datos_json["urgencia"],
+        "urgencia_color": datos_json["urgencia_color"],
+        "categoria": datos_json["categoria"],
+        "dispositivo": datos_json["dispositivo"],
+        "falla_reportada": datos_json["falla_reportada"],
+        "accion_recomendada": datos_json["accion_recomendada"],
+        "borrador_respuesta": datos_json["borrador_respuesta"],
         "latencia_segundos": latencia_total,
         "cliente_nombre": nombre_cliente,
         "cliente_telefono": telefono_cliente,
@@ -537,7 +842,7 @@ def renderizar_pantalla_login_pin() -> None:
                         st.session_state["pin_buffer"] = ""
                         st.rerun()
                     else:
-                        st.error("❌ PIN incorrecto. Intenta nuevamente.")
+                        st.error(f"❌ PIN incorrecto para {taller_elegido}. Recuerda que puedes consultar el PIN demo `{datos_taller['pin']}` o pulsar el botón de Acceso Rápido inferior.")
                         st.session_state["pin_buffer"] = ""
 
             st.markdown("---")
@@ -649,29 +954,32 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
         return temperatura, nivel_thinking, limite_tokens, modo_vista
 
 def generar_csv_historial(historial: list[RegistroHistorial]) -> str:
-    buffer = io.StringIO()
-    campos = [
-        "timestamp",
-        "taller",
-        "metodo",
-        "cliente_nombre",
-        "cliente_telefono",
-        "urgencia",
-        "categoria",
-        "dispositivo",
-        "falla_reportada",
-        "accion_recomendada",
-        "borrador_respuesta",
-        "latencia_segundos",
-        "nivel_thinking",
-        "tokens_limite",
-        "mensaje_original",
-    ]
-    escritor = csv.DictWriter(buffer, fieldnames=campos)
-    escritor.writeheader()
-    for fila in historial:
-        escritor.writerow(fila)
-    return buffer.getvalue()
+    try:
+        buffer = io.StringIO()
+        campos = [
+            "timestamp",
+            "taller",
+            "metodo",
+            "cliente_nombre",
+            "cliente_telefono",
+            "urgencia",
+            "categoria",
+            "dispositivo",
+            "falla_reportada",
+            "accion_recomendada",
+            "borrador_respuesta",
+            "latencia_segundos",
+            "nivel_thinking",
+            "tokens_limite",
+            "mensaje_original",
+        ]
+        escritor = csv.DictWriter(buffer, fieldnames=campos, extrasaction="ignore")
+        escritor.writeheader()
+        for fila in historial:
+            escritor.writerow(fila)
+        return buffer.getvalue()
+    except Exception:
+        return "timestamp,taller,error\n00:00:00,General,Error al exportar registros"
 
 def renderizar_encabezado_principal() -> None:
     taller_activo = st.session_state.get("taller_activo", "Taller Central · FixLab")
@@ -711,9 +1019,13 @@ def renderizar_vista_historial() -> None:
         return
 
     col_metrica_total, col_metrica_criticas, col_metrica_latencia, col_metrica_manuales = st.columns(4)
-    criticas = sum(1 for item in historial if "ALTA" in item["urgencia"])
-    manuales = sum(1 for item in historial if "Manual" in item["metodo"])
-    ia_items = [item["latencia_segundos"] for item in historial if "Manual" not in item["metodo"]]
+    criticas = sum(1 for item in historial if "ALTA" in str(item.get("urgencia", "")))
+    manuales = sum(1 for item in historial if "Manual" in str(item.get("metodo", "")))
+    ia_items = [
+        float(item.get("latencia_segundos", 0.0))
+        for item in historial
+        if "Manual" not in str(item.get("metodo", ""))
+    ]
     promedio_latencia = round(sum(ia_items) / len(ia_items), 2) if ia_items else 0.0
 
     with col_metrica_total:
@@ -744,60 +1056,65 @@ def renderizar_vista_historial() -> None:
 
     st.markdown("### 📋 Fichas Detalladas")
     for indice, entrada in enumerate(historial):
-        with st.container(border=True):
-            col_encabezado_izq, col_encabezado_der = st.columns([4, 1])
+        try:
+            with st.container(border=True):
+                col_encabezado_izq, col_encabezado_der = st.columns([4, 1])
 
-            nombre = entrada["cliente_nombre"]
-            telefono = entrada["cliente_telefono"]
-            if nombre != "No especificado" and telefono != "No registrado":
-                identificador = f"{nombre} ({telefono})"
-            elif telefono != "No registrado":
-                identificador = f"Tel: {telefono}"
-            elif nombre != "No especificado":
-                identificador = nombre
-            else:
-                identificador = "Cliente no identificado"
-
-            urgencia_clase = (
-                "badge-alta" if "ALTA" in entrada["urgencia"] else "badge-media" if "MEDIA" in entrada["urgencia"] else "badge-baja"
-            )
-
-            with col_encabezado_izq:
-                st.markdown(
-                    f"**Caso #{len(historial) - indice}** · `{entrada['timestamp']}` · **{entrada['taller']}** · *{entrada['metodo']}* | "
-                    f"👤 **{identificador}** | <span class='badge-chip {urgencia_clase}'>{entrada['urgencia']}</span> | "
-                    f"**{entrada['categoria']}**",
-                    unsafe_allow_html=True,
-                )
-            with col_encabezado_der:
-                if "Manual" in entrada["metodo"]:
-                    st.caption("✍️ Manual")
+                nombre = str(entrada.get("cliente_nombre", "No especificado"))
+                telefono = str(entrada.get("cliente_telefono", "No registrado"))
+                if nombre != "No especificado" and telefono != "No registrado":
+                    identificador = f"{nombre} ({telefono})"
+                elif telefono != "No registrado":
+                    identificador = f"Tel: {telefono}"
+                elif nombre != "No especificado":
+                    identificador = nombre
                 else:
-                    st.caption(f"⚡ {entrada['latencia_segundos']}s · {entrada['nivel_thinking']}")
+                    identificador = "Cliente no identificado"
 
-            col_dev, col_act = st.columns(2)
-            with col_dev:
-                st.markdown(f"**📱 Dispositivo:** {entrada['dispositivo']} · **Falla:** {entrada['falla_reportada']}")
-            with col_act:
-                st.markdown(f"**🎯 Acción en taller:** {entrada['accion_recomendada']}")
+                urgencia = str(entrada.get("urgencia", "BAJA"))
+                urgencia_clase = (
+                    "badge-alta" if "ALTA" in urgencia else "badge-media" if "MEDIA" in urgencia else "badge-baja"
+                )
 
-            st.caption(f"Mensaje registrado: \"{entrada['mensaje_original']}\"")
+                with col_encabezado_izq:
+                    st.markdown(
+                        f"**Caso #{len(historial) - indice}** · `{entrada.get('timestamp', '--:--')}` · **{entrada.get('taller', 'Taller')}** · *{entrada.get('metodo', 'Registro')}* | "
+                        f"👤 **{identificador}** | <span class='badge-chip {urgencia_clase}'>{urgencia}</span> | "
+                        f"**{entrada.get('categoria', 'General')}**",
+                        unsafe_allow_html=True,
+                    )
+                with col_encabezado_der:
+                    if "Manual" in str(entrada.get("metodo", "")):
+                        st.caption("✍️ Manual")
+                    else:
+                        st.caption(f"⚡ {entrada.get('latencia_segundos', 0.0)}s · {entrada.get('nivel_thinking', 'LOW')}")
 
-            st.text_area(
-                label=f"Respuesta generada (Caso #{len(historial) - indice})",
-                value=entrada["borrador_respuesta"],
-                height=85,
-                key=f"historial_borrador_{indice}",
-                disabled=True,
-            )
+                col_dev, col_act = st.columns(2)
+                with col_dev:
+                    st.markdown(f"**📱 Dispositivo:** {entrada.get('dispositivo', 'No especificado')} · **Falla:** {entrada.get('falla_reportada', 'Sin detalle')}")
+                with col_act:
+                    st.markdown(f"**🎯 Acción en taller:** {entrada.get('accion_recomendada', 'Revisión técnica')}")
 
-            enlace_wa = construir_enlace_whatsapp(telefono, entrada["borrador_respuesta"])
-            st.link_button(
-                label="📲 Reabrir en WhatsApp",
-                url=enlace_wa,
-                use_container_width=False,
-                key=f"btn_wa_historial_{indice}",
-            )
+                st.caption(f"Mensaje registrado: \"{entrada.get('mensaje_original', '')}\"")
+
+                borrador = str(entrada.get("borrador_respuesta", ""))
+                st.text_area(
+                    label=f"Respuesta generada (Caso #{len(historial) - indice})",
+                    value=borrador,
+                    height=85,
+                    key=f"historial_borrador_{indice}",
+                    disabled=True,
+                )
+
+                enlace_wa = construir_enlace_whatsapp(telefono, borrador)
+                st.link_button(
+                    label="📲 Reabrir en WhatsApp",
+                    url=enlace_wa,
+                    use_container_width=False,
+                    key=f"btn_wa_historial_{indice}",
+                )
+        except Exception:
+            st.warning(f"⚠️ No fue posible renderizar la ficha #{len(historial) - indice}.")
 
 def renderizar_modo_ia(
     temperatura_seleccionada: float,
@@ -859,24 +1176,60 @@ def renderizar_modo_ia(
         texto_a_evaluar = mensaje_actual.strip()
 
         if not texto_a_evaluar:
-            st.warning("⚠️ El campo está vacío. Pega o escribe un mensaje antes de presionar Clasificar.")
+            st.warning("⚠️ **Entrada vacía:** Pega o escribe el mensaje recibido por WhatsApp antes de presionar Clasificar.")
             return
 
         if not validar_coherencia_minima(texto_a_evaluar):
-            st.error("⚠️ **Mensaje no interpretable:** El texto ingresado no contiene palabras o frases comprensibles. Introduce una consulta legítima de WhatsApp.")
+            diagnostico_coherencia: DiagnosticoIncidencia = {
+                "categoria": "Validación de Contenido",
+                "titulo": "Mensaje Ininteligible o Sin Contexto Comunicativo",
+                "descripcion": (
+                    "El texto ingresado contiene una secuencia de caracteres sin sentido o letras al azar "
+                    "que no constituyen una consulta técnica legítima para el taller."
+                ),
+                "accion_sugerida": (
+                    "Verifica el mensaje copiado de WhatsApp. Si el cliente envió una imagen o nota de voz, "
+                    "solicita que detalle su falla por texto o regístralo mediante la pestaña '✍️ Triaje Manual de Mostrador'."
+                ),
+                "icono": "🔍",
+                "es_recuperable_manual": True,
+            }
+            renderizar_alerta_incidencia(diagnostico_coherencia)
             return
 
         clave_api = obtener_clave_gemini()
         if not clave_api:
-            st.error(
-                "🔒 **Servicio no configurado:** No se detectó la clave de API `GEMINI_API_KEY`. "
-                "Para procesar mensajes en vivo, debes registrar el secreto en el panel de Streamlit Cloud "
-                "o en tu entorno local."
-            )
+            diagnostico_clave: DiagnosticoIncidencia = {
+                "categoria": "Configuración del Sistema",
+                "titulo": "Servicio de IA Pendiente de Configuración (GEMINI_API_KEY)",
+                "descripcion": (
+                    "No se detectó la clave de API de Google Gemini en las variables de entorno ni en los secretos del taller."
+                ),
+                "accion_sugerida": (
+                    "Registra 'GEMINI_API_KEY' en el panel de Streamlit Cloud (Settings > Secrets) "
+                    "o en tu archivo local .streamlit/secrets.toml. Mientras tanto, el taller continúa 100% operativo "
+                    "utilizando la pestaña '✍️ Triaje Manual de Mostrador'."
+                ),
+                "icono": "🔒",
+                "es_recuperable_manual": True,
+            }
+            renderizar_alerta_incidencia(diagnostico_clave)
             return
 
         if not GENAI_DISPONIBLE:
-            st.error("❌ **Dependencia faltante:** El SDK `google-genai` no está instalado en este entorno.")
+            diagnostico_sdk: DiagnosticoIncidencia = {
+                "categoria": "Entorno de Ejecución",
+                "titulo": "Librería de Inferencia No Disponible",
+                "descripcion": (
+                    "El paquete oficial 'google-genai' no se encuentra instalado en el entorno de ejecución actual."
+                ),
+                "accion_sugerida": (
+                    "Instala las dependencias necesarias ejecutando 'pip install -r requirements.txt' en la terminal de tu servidor."
+                ),
+                "icono": "📦",
+                "es_recuperable_manual": True,
+            }
+            renderizar_alerta_incidencia(diagnostico_sdk)
             return
 
         nombre_resuelto, telefono_resuelto = resolver_datos_contacto(
@@ -916,22 +1269,9 @@ def renderizar_modo_ia(
                 }
                 st.session_state["historial_mensajes"].insert(0, registro_nuevo)
 
-        except APIError as error_api:
-            detalle = str(error_api)
-            if "RESOURCE_EXHAUSTED" in detalle or "429" in detalle or getattr(error_api, "code", None) == 429:
-                st.error("⏳ **Límite de cuota alcanzado (429):** El servicio de Gemini ha recibido demasiadas peticiones por minuto. Espera 60 segundos antes de reenviar.")
-            elif "UNAVAILABLE" in detalle or "503" in detalle or getattr(error_api, "code", None) == 503:
-                st.error("⏳ **Servidores de Gemini saturados (503):** Google está experimentando alta demanda en este momento. Por favor, reintenta en unos instantes.")
-            elif "API_KEY_INVALID" in detalle or "400" in detalle or getattr(error_api, "code", None) == 400:
-                st.error("🔑 **Clave no válida:** La clave de API configurada fue rechazada por Google AI Studio. Verifica tus credenciales.")
-            else:
-                st.error(f"⚠️ **Error en servicio de IA:** {detalle}")
-            return
-        except json.JSONDecodeError:
-            st.error("⚠️ **Fallo de deserialización:** La IA no generó una respuesta JSON válida. Intenta de nuevo.")
-            return
-        except Exception as error_general:
-            st.error(f"📡 **Error inesperado de comunicación:** {error_general}")
+        except Exception as error_capturado:
+            diagnostico = clasificar_excepcion_operativa(error_capturado)
+            renderizar_alerta_incidencia(diagnostico)
             return
 
     resultado_activo = st.session_state.get("resultado_actual")

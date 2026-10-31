@@ -145,7 +145,12 @@ Reglas obligatorias:
 ### 6.3 Decisión Final y Justificación
 Se descarta la arquitectura desacoplada (Hugging Face para clasificar + Gemini para redactar) porque fragmentar la tarea en dos servicios gratuitos duplica los puntos de fallo y multiplica la latencia. Gemini 3.8 Flash resuelve ambos problemas simultáneamente con mayor coherencia semántica: comprende el tono coloquial del cliente de WhatsApp, deduce la urgencia operativa y genera una respuesta contextual impecable en una sola inferencia.
 
-### 6.4 ¿Qué pasa si falla la IA? (Plan de Contingencia)
-1. **Agotamiento de cuota (`ResourceExhausted` / 429):** La app captura la excepción de forma controlada y presenta un mensaje explicativo al técnico recomendando esperar 60 segundos, sin interrumpir la sesión.
-2. **Fallo de conexión o timeout de red:** Se activa un aviso claro indicando revisar la conexión a internet.
-3. **Mensaje sin sentido o indescifrable:** Se clasifica como `No Interpretable` y se emite un borrador estándar solicitando aclaración, sin inventar diagnósticos técnicos ficticios.
+### 6.4 ¿Qué pasa si falla la IA? (Plan de Contingencia y Manejo de Excepciones)
+La aplicación implementa una jerarquía de excepciones personalizadas (`ErrorOperativoTaller`) y un módulo de diagnóstico contextual (`clasificar_excepcion_operativa`) que elimina cualquier volcado crudo de errores (*traceback* o mensajes en duro):
+
+1. **Agotamiento de cuota (`ErrorCuotaExcedida` / HTTP 429):** Captura el exceso de tasa por minuto de Google AI Studio y muestra una alerta visual con categoría, diagnóstico amigable y recomendación de esperar 60s o continuar mediante el Triaje Manual sin bloquear la atención al cliente.
+2. **Saturación temporal de servidores (`ErrorServidorSaturado` / HTTP 503):** Ejecuta un reintento automático tras 2 segundos; si persiste la congestión, notifica al técnico para reintentar en 15 segundos o usar mostrador manual.
+3. **Fallo de credenciales (`ErrorAutenticacionAPI` / HTTP 400, 401, 403):** Diagnostica problemas con `GEMINI_API_KEY` indicando los pasos exactos de configuración en Streamlit Cloud Secrets.
+4. **Fallo de red o timeout (`ErrorConexionRed`):** Detecta desconexiones de internet, errores de socket o DNS (`gaierror`) y sugiere verificar la red local.
+5. **Respuesta truncada o vacía (`ErrorRespuestaVacia`):** Previene errores cuando el motor de razonamiento de Gemini agota los tokens, aconsejando ampliar el límite a 2,000 tokens o bajar el nivel de thinking a LOW.
+6. **Formato no serializable (`ErrorFormatoInvalido`):** Parser tolerante a fallos que remueve etiquetas Markdown (` ```json `), extrae límites `{ ... }` y valida los campos requeridos inyectando valores seguros por defecto.
