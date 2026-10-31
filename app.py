@@ -135,42 +135,42 @@ CATALOGO_SERVICIOS = [
     {
         "servicio": "Cambio de Pantalla OLED (Gama Media)",
         "categoria": "Pantallas",
-        "costo_aprox": "$850 - $1,400 MXN",
+        "costo_aprox": "$45 - $75 USD",
         "tiempo": "45 - 90 min",
         "garantia": "60 días",
     },
     {
         "servicio": "Cambio de Pantalla OLED Premium / iPhone",
         "categoria": "Pantallas",
-        "costo_aprox": "$1,600 - $3,200 MXN",
+        "costo_aprox": "$85 - $170 USD",
         "tiempo": "60 - 90 min",
         "garantia": "90 días",
     },
     {
         "servicio": "Reemplazo de Batería Original OEM",
         "categoria": "Baterías",
-        "costo_aprox": "$450 - $850 MXN",
+        "costo_aprox": "$25 - $45 USD",
         "tiempo": "30 - 45 min",
         "garantia": "90 días",
     },
     {
         "servicio": "Reparación de Centro de Carga Tipo C",
         "categoria": "Puertos / Carga",
-        "costo_aprox": "$350 - $600 MXN",
+        "costo_aprox": "$20 - $35 USD",
         "tiempo": "40 min",
         "garantia": "30 días",
     },
     {
         "servicio": "Limpieza por Humedad (Baño Ultrasónico)",
         "categoria": "Diagnóstico / Software",
-        "costo_aprox": "$400 - $700 MXN",
+        "costo_aprox": "$25 - $40 USD",
         "tiempo": "2 - 4 horas",
         "garantia": "Sin garantía húmedos",
     },
     {
         "servicio": "Flasheo y Restauración de Sistema Operativo",
         "categoria": "Diagnóstico / Software",
-        "costo_aprox": "$300 - $500 MXN",
+        "costo_aprox": "$15 - $30 USD",
         "tiempo": "60 min",
         "garantia": "15 días",
     },
@@ -634,22 +634,14 @@ def ejecutar_clasificacion_gemini(
         )
 
     configuracion = None
-    try:
-        configuracion = types.GenerateContentConfig(
-            system_instruction=PROMPT_SISTEMA_OPERATIVO,
-            response_mime_type="application/json",
-            temperature=temperatura,
-            max_output_tokens=limite_tokens,
-            thinking_config=types.ThinkingConfig(thinking_level=nivel_thinking),
-        )
-    except Exception:
+    if nivel_thinking != "OFF":
         try:
             configuracion = types.GenerateContentConfig(
                 system_instruction=PROMPT_SISTEMA_OPERATIVO,
                 response_mime_type="application/json",
                 temperature=temperatura,
                 max_output_tokens=limite_tokens,
-                thinking_config={"thinking_level": nivel_thinking},
+                thinking_config=types.ThinkingConfig(thinking_level=nivel_thinking),
             )
         except Exception:
             try:
@@ -658,44 +650,72 @@ def ejecutar_clasificacion_gemini(
                     response_mime_type="application/json",
                     temperature=temperatura,
                     max_output_tokens=limite_tokens,
+                    thinking_config={"thinking_level": nivel_thinking},
                 )
-            except Exception as error_cfg:
-                raise ErrorOperativoTaller(
-                    f"No fue posible construir los parámetros de configuración de inferencia: {error_cfg}",
-                    accion_sugerida="Restaura los parámetros en la barra lateral a sus valores por defecto."
+            except Exception:
+                configuracion = types.GenerateContentConfig(
+                    system_instruction=PROMPT_SISTEMA_OPERATIVO,
+                    response_mime_type="application/json",
+                    temperature=temperatura,
+                    max_output_tokens=limite_tokens,
                 )
+    else:
+        configuracion = types.GenerateContentConfig(
+            system_instruction=PROMPT_SISTEMA_OPERATIVO,
+            response_mime_type="application/json",
+            temperature=temperatura,
+            max_output_tokens=limite_tokens,
+        )
 
     ultimo_error: Optional[Exception] = None
     respuesta = None
+    modelo_utilizado = MODELO_ACTIVO
+    modelos_candidatos = ["gemini-2.0-flash", MODELO_ACTIVO]
 
-    for intento in range(2):
+    for modelo_evaluar in modelos_candidatos:
         try:
-            respuesta = cliente_genai.models.generate_content(
-                model=MODELO_ACTIVO,
-                contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
-                config=configuracion,
-            )
+            for intento in range(2):
+                try:
+                    respuesta = cliente_genai.models.generate_content(
+                        model=modelo_evaluar,
+                        contents=f"Mensaje entrante de WhatsApp:\n\"\"\"\n{mensaje_texto}\n\"\"\"",
+                        config=configuracion,
+                    )
+                    if respuesta and respuesta.text:
+                        modelo_utilizado = modelo_evaluar
+                        break
+                except Exception as error_intento:
+                    ultimo_error = error_intento
+                    detalle_intento = str(error_intento)
+
+                    if ("503" in detalle_intento or "UNAVAILABLE" in detalle_intento) and intento == 0:
+                        time.sleep(1.5)
+                        continue
+
+                    if "404" in detalle_intento or "NOT_FOUND" in detalle_intento:
+                        break
+
+                    nombre_error = type(error_intento).__name__
+                    if "RESOURCE_EXHAUSTED" in detalle_intento or "429" in detalle_intento:
+                        raise ErrorCuotaExcedida("Límite de cuota alcanzado (HTTP 429).")
+                    elif "UNAVAILABLE" in detalle_intento or "503" in detalle_intento:
+                        raise ErrorServidorSaturado("Servidor de inferencia en alta demanda (HTTP 503).")
+                    elif any(k in detalle_intento for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
+                        raise ErrorAutenticacionAPI("Clave de API inválida o denegada.")
+                    elif any(k in detalle_intento.lower() or k in nombre_error.lower() for k in ("connect", "timeout", "socket", "gaierror")):
+                        raise ErrorConexionRed(f"Fallo de conexión de red: {error_intento}")
+                    else:
+                        raise error_intento
+
             if respuesta and respuesta.text:
                 break
-        except Exception as error_intento:
-            ultimo_error = error_intento
-            detalle_intento = str(error_intento)
-            nombre_error = type(error_intento).__name__
-
-            if ("503" in detalle_intento or "UNAVAILABLE" in detalle_intento) and intento == 0:
-                time.sleep(2)
+        except (ErrorCuotaExcedida, ErrorServidorSaturado, ErrorAutenticacionAPI, ErrorConexionRed):
+            raise
+        except Exception as error_modelo:
+            detalle_m = str(error_modelo)
+            if "404" in detalle_m or "NOT_FOUND" in detalle_m:
                 continue
-
-            if "RESOURCE_EXHAUSTED" in detalle_intento or "429" in detalle_intento:
-                raise ErrorCuotaExcedida("Límite de cuota alcanzado (HTTP 429).")
-            elif "UNAVAILABLE" in detalle_intento or "503" in detalle_intento:
-                raise ErrorServidorSaturado("Servidor de inferencia en alta demanda (HTTP 503).")
-            elif any(k in detalle_intento for k in ("API_KEY_INVALID", "PERMISSION_DENIED", "400", "401", "403")):
-                raise ErrorAutenticacionAPI("Clave de API inválida o denegada.")
-            elif any(k in detalle_intento.lower() or k in nombre_error.lower() for k in ("connect", "timeout", "socket", "gaierror")):
-                raise ErrorConexionRed(f"Fallo de conexión de red: {error_intento}")
-            else:
-                raise error_intento
+            raise error_modelo
 
     if not respuesta or not respuesta.text:
         if ultimo_error:
@@ -727,7 +747,7 @@ def ejecutar_clasificacion_gemini(
         "cliente_telefono": telefono_cliente,
         "nivel_thinking": nivel_thinking,
         "tokens_limite": limite_tokens,
-        "metodo": "🤖 Gemini 3.8 Flash",
+        "metodo": f"🤖 {modelo_utilizado}",
         "taller": taller_origen,
     }
 
@@ -924,25 +944,31 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
             )
 
             opcion_thinking = st.select_slider(
-                "Nivel de razonamiento (Thinking):",
-                options=["LOW (Rápido)", "MEDIUM (Equilibrado)", "HIGH (Profundo)"],
-                value="LOW (Rápido)",
-                help="Controla la profundidad del razonamiento interno del modelo. LOW minimiza la latencia para respuestas inmediatas; MEDIUM y HIGH incrementan el análisis pero aumentan el tiempo de espera.",
+                "Velocidad y Modo de IA:",
+                options=[
+                    "⚡ TURBO (1-2s · Directo)",
+                    "LOW (~15s · Ligero)",
+                    "MEDIUM (~25s · Equilibrado)",
+                    "HIGH (~35s · Profundo)",
+                ],
+                value="⚡ TURBO (1-2s · Directo)",
+                help="⚡ TURBO genera la respuesta inmediata en 1 a 2 segundos (inferencia directa sin razonamiento interno, idéntico a apps de viajes o e-commerce). LOW, MEDIUM y HIGH activan deliberación interna reflexiva si se requiere análisis forense.",
             )
             mapeo_thinking = {
-                "LOW (Rápido)": "LOW",
-                "MEDIUM (Equilibrado)": "MEDIUM",
-                "HIGH (Profundo)": "HIGH",
+                "⚡ TURBO (1-2s · Directo)": "OFF",
+                "LOW (~15s · Ligero)": "LOW",
+                "MEDIUM (~25s · Equilibrado)": "MEDIUM",
+                "HIGH (~35s · Profundo)": "HIGH",
             }
             nivel_thinking = mapeo_thinking[opcion_thinking]
 
             limite_tokens = st.slider(
                 "Límite de tokens de salida:",
-                min_value=1000,
+                min_value=500,
                 max_value=3000,
-                value=1500,
+                value=1200,
                 step=100,
-                help="Mínimo seguro fijado en 1000 tokens por norma del curso: evita que el razonamiento interno de Gemini agote el cupo y devuelva una respuesta JSON vacía o truncada.",
+                help="En modo TURBO, entre 500 y 1200 tokens maximizan la velocidad. Si activas razonamiento reflexivo (LOW/MEDIUM/HIGH), el sistema recomienda mantener 1000 tokens o más.",
             )
 
         elif modo_vista == "historial":
@@ -1264,43 +1290,93 @@ def renderizar_modo_ia(
             texto_a_evaluar, nombre_ingresado, telefono_ingresado
         )
 
-        try:
-            with st.spinner("⚡ Analizando con Google Gemini 3.8 Flash..."):
-                resultado = ejecutar_clasificacion_gemini(
-                    mensaje_texto=texto_a_evaluar,
-                    clave_api=clave_api,
-                    temperatura=temperatura_seleccionada,
-                    nivel_thinking=nivel_thinking_seleccionado,
-                    limite_tokens=limite_tokens_seleccionado,
-                    nombre_cliente=nombre_resuelto,
-                    telefono_cliente=telefono_resuelto,
-                    taller_origen=taller_activo,
+        if "cache_consultas_ia" not in st.session_state:
+            st.session_state["cache_consultas_ia"] = {}
+
+        clave_cache = f"{texto_a_evaluar.strip()}_{nivel_thinking_seleccionado}_{temperatura_seleccionada}"
+
+        if clave_cache in st.session_state["cache_consultas_ia"]:
+            resultado_cached = st.session_state["cache_consultas_ia"][clave_cache]
+            resultado = {
+                "urgencia": resultado_cached["urgencia"],
+                "urgencia_color": resultado_cached["urgencia_color"],
+                "categoria": resultado_cached["categoria"],
+                "dispositivo": resultado_cached["dispositivo"],
+                "falla_reportada": resultado_cached["falla_reportada"],
+                "accion_recomendada": resultado_cached["accion_recomendada"],
+                "borrador_respuesta": resultado_cached["borrador_respuesta"],
+                "latencia_segundos": 0.05,
+                "cliente_nombre": nombre_resuelto,
+                "cliente_telefono": telefono_resuelto,
+                "nivel_thinking": nivel_thinking_seleccionado,
+                "tokens_limite": limite_tokens_seleccionado,
+                "metodo": f"{resultado_cached['metodo']} (Caché)",
+                "taller": taller_activo,
+            }
+            st.session_state["resultado_actual"] = resultado
+
+            registro_nuevo: RegistroHistorial = {
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "taller": taller_activo,
+                "metodo": f"{resultado['metodo']}",
+                "cliente_nombre": nombre_resuelto,
+                "cliente_telefono": telefono_resuelto,
+                "mensaje_original": texto_a_evaluar,
+                "urgencia": resultado["urgencia"],
+                "categoria": resultado["categoria"],
+                "dispositivo": resultado["dispositivo"],
+                "falla_reportada": resultado["falla_reportada"],
+                "accion_recomendada": resultado["accion_recomendada"],
+                "borrador_respuesta": resultado["borrador_respuesta"],
+                "latencia_segundos": 0.05,
+                "nivel_thinking": resultado["nivel_thinking"],
+                "tokens_limite": resultado["tokens_limite"],
+            }
+            st.session_state["historial_mensajes"].insert(0, registro_nuevo)
+        else:
+            try:
+                mensaje_spinner = (
+                    "⚡ Analizando en Modo TURBO con Google Gemini..."
+                    if nivel_thinking_seleccionado == "OFF"
+                    else "🧠 Analizando con razonamiento reflexivo en Google Gemini..."
                 )
-                st.session_state["resultado_actual"] = resultado
+                with st.spinner(mensaje_spinner):
+                    resultado = ejecutar_clasificacion_gemini(
+                        mensaje_texto=texto_a_evaluar,
+                        clave_api=clave_api,
+                        temperatura=temperatura_seleccionada,
+                        nivel_thinking=nivel_thinking_seleccionado,
+                        limite_tokens=limite_tokens_seleccionado,
+                        nombre_cliente=nombre_resuelto,
+                        telefono_cliente=telefono_resuelto,
+                        taller_origen=taller_activo,
+                    )
+                    st.session_state["resultado_actual"] = resultado
+                    st.session_state["cache_consultas_ia"][clave_cache] = resultado
 
-                registro_nuevo: RegistroHistorial = {
-                    "timestamp": datetime.now().strftime("%H:%M:%S"),
-                    "taller": taller_activo,
-                    "metodo": "🤖 Gemini 3.8 Flash",
-                    "cliente_nombre": nombre_resuelto,
-                    "cliente_telefono": telefono_resuelto,
-                    "mensaje_original": texto_a_evaluar,
-                    "urgencia": resultado["urgencia"],
-                    "categoria": resultado["categoria"],
-                    "dispositivo": resultado["dispositivo"],
-                    "falla_reportada": resultado["falla_reportada"],
-                    "accion_recomendada": resultado["accion_recomendada"],
-                    "borrador_respuesta": resultado["borrador_respuesta"],
-                    "latencia_segundos": resultado["latencia_segundos"],
-                    "nivel_thinking": resultado["nivel_thinking"],
-                    "tokens_limite": resultado["tokens_limite"],
-                }
-                st.session_state["historial_mensajes"].insert(0, registro_nuevo)
+                    registro_nuevo_ia: RegistroHistorial = {
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        "taller": taller_activo,
+                        "metodo": resultado["metodo"],
+                        "cliente_nombre": nombre_resuelto,
+                        "cliente_telefono": telefono_resuelto,
+                        "mensaje_original": texto_a_evaluar,
+                        "urgencia": resultado["urgencia"],
+                        "categoria": resultado["categoria"],
+                        "dispositivo": resultado["dispositivo"],
+                        "falla_reportada": resultado["falla_reportada"],
+                        "accion_recomendada": resultado["accion_recomendada"],
+                        "borrador_respuesta": resultado["borrador_respuesta"],
+                        "latencia_segundos": resultado["latencia_segundos"],
+                        "nivel_thinking": resultado["nivel_thinking"],
+                        "tokens_limite": resultado["tokens_limite"],
+                    }
+                    st.session_state["historial_mensajes"].insert(0, registro_nuevo_ia)
 
-        except Exception as error_capturado:
-            diagnostico = clasificar_excepcion_operativa(error_capturado)
-            renderizar_alerta_incidencia(diagnostico)
-            return
+            except Exception as error_capturado:
+                diagnostico = clasificar_excepcion_operativa(error_capturado)
+                renderizar_alerta_incidencia(diagnostico)
+                return
 
     resultado_activo = st.session_state.get("resultado_actual")
     if resultado_activo:
@@ -1552,31 +1628,31 @@ def renderizar_vista_calculadora() -> None:
     col_c1, col_c2, col_c3 = st.columns(3)
     with col_c1:
         costo_repuesto = st.number_input(
-            "Costo del repuesto ($):",
+            "Costo del repuesto ($ USD):",
             min_value=0.0,
-            value=650.0,
-            step=50.0,
+            value=35.0,
+            step=5.0,
             key="calc_repuesto",
         )
     with col_c2:
         mano_obra = st.number_input(
-            "Mano de obra técnica ($):",
+            "Mano de obra técnica ($ USD):",
             min_value=0.0,
-            value=350.0,
-            step=50.0,
+            value=25.0,
+            step=5.0,
             key="calc_mano_obra",
         )
     with col_c3:
         margen_garantia = st.number_input(
-            "Fondo de garantía / Imprevistos ($):",
+            "Fondo de garantía / Imprevistos ($ USD):",
             min_value=0.0,
-            value=100.0,
-            step=25.0,
+            value=10.0,
+            step=2.5,
             key="calc_garantia",
         )
 
     total_presupuesto = costo_repuesto + mano_obra + margen_garantia
-    st.markdown(f"#### 💵 Total Presupuesto Sugerido: **${total_presupuesto:,.2f} MXN**")
+    st.markdown(f"#### 💵 Total Presupuesto Sugerido: **${total_presupuesto:,.2f} USD**")
 
     col_eq, col_conc = st.columns(2)
     with col_eq:
@@ -1594,7 +1670,7 @@ def renderizar_vista_calculadora() -> None:
     texto_cotizacion = (
         f"Hola, te compartimos tu cotización formal para {dispositivo_cot}:\n"
         f"🔧 Servicio: {concepto_cot}\n"
-        f"💰 Costo total: ${total_presupuesto:,.2f} MXN (incluye repuesto e instalación profesional)\n"
+        f"💰 Costo total: ${total_presupuesto:,.2f} USD (incluye repuesto e instalación profesional)\n"
         f"🛡️ Cobertura: {garantia_meses}\n"
         "¿Te gustaría apartar tu repuesto y agendar tu recepción hoy?"
     )
