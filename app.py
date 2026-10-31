@@ -1388,6 +1388,8 @@ def callback_cargar_preset_ia(texto: str, nombre: str, telefono: str) -> None:
     st.session_state["input_ia_mensaje"] = texto
     st.session_state["input_ia_nombre"] = nombre
     st.session_state["input_ia_telefono"] = telefono
+    st.session_state.pop("pending_set_input_ia_nombre", None)
+    st.session_state.pop("pending_set_input_ia_telefono", None)
     st.session_state["mensaje_input"] = texto
     st.session_state["cliente_nombre_input"] = nombre
     st.session_state["cliente_telefono_input"] = telefono
@@ -1399,6 +1401,8 @@ def callback_limpiar_formulario_ia() -> None:
     st.session_state["input_ia_mensaje"] = ""
     st.session_state["input_ia_nombre"] = ""
     st.session_state["input_ia_telefono"] = ""
+    st.session_state.pop("pending_set_input_ia_nombre", None)
+    st.session_state.pop("pending_set_input_ia_telefono", None)
     st.session_state["mensaje_input"] = ""
     st.session_state["cliente_nombre_input"] = ""
     st.session_state["cliente_telefono_input"] = ""
@@ -1413,6 +1417,10 @@ def renderizar_modo_ia(
     limite_tokens_seleccionado: int,
     modelo_seleccionado: str = "gemini-3.8-flash",
 ) -> None:
+    if "pending_set_input_ia_nombre" in st.session_state:
+        st.session_state["input_ia_nombre"] = st.session_state.pop("pending_set_input_ia_nombre")
+    if "pending_set_input_ia_telefono" in st.session_state:
+        st.session_state["input_ia_telefono"] = st.session_state.pop("pending_set_input_ia_telefono")
     st.markdown("#### ⚡ Acciones Rápidas · Casos Frecuentes")
     st.caption("Selecciona cualquier caso para precargar datos y clasificar automáticamente en 1 clic:")
 
@@ -1583,10 +1591,10 @@ def renderizar_modo_ia(
 
             cambio_inputs = False
             if not nombre_ingresado and nom_final != "No especificado":
-                st.session_state["input_ia_nombre"] = nom_final
+                st.session_state["pending_set_input_ia_nombre"] = nom_final
                 cambio_inputs = True
             if not telefono_ingresado and tel_final != "No registrado":
-                st.session_state["input_ia_telefono"] = tel_final
+                st.session_state["pending_set_input_ia_telefono"] = tel_final
                 cambio_inputs = True
 
             if cambio_inputs:
@@ -1636,10 +1644,10 @@ def renderizar_modo_ia(
 
                     cambio_inputs = False
                     if not nombre_ingresado and resultado["cliente_nombre"] != "No especificado":
-                        st.session_state["input_ia_nombre"] = resultado["cliente_nombre"]
+                        st.session_state["pending_set_input_ia_nombre"] = resultado["cliente_nombre"]
                         cambio_inputs = True
                     if not telefono_ingresado and resultado["cliente_telefono"] != "No registrado":
-                        st.session_state["input_ia_telefono"] = resultado["cliente_telefono"]
+                        st.session_state["pending_set_input_ia_telefono"] = resultado["cliente_telefono"]
                         cambio_inputs = True
 
                     if cambio_inputs:
