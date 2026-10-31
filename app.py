@@ -96,6 +96,51 @@ PRESET_MESSAGES: dict[str, dict[str, str]] = {
     },
 }
 
+CATALOGO_SERVICIOS = [
+    {
+        "servicio": "Cambio de Pantalla OLED (Gama Media)",
+        "categoria": "Pantallas",
+        "costo_aprox": "$850 - $1,400 MXN",
+        "tiempo": "45 - 90 min",
+        "garantia": "60 días",
+    },
+    {
+        "servicio": "Cambio de Pantalla OLED Premium / iPhone",
+        "categoria": "Pantallas",
+        "costo_aprox": "$1,600 - $3,200 MXN",
+        "tiempo": "60 - 90 min",
+        "garantia": "90 días",
+    },
+    {
+        "servicio": "Reemplazo de Batería Original OEM",
+        "categoria": "Baterías",
+        "costo_aprox": "$450 - $850 MXN",
+        "tiempo": "30 - 45 min",
+        "garantia": "90 días",
+    },
+    {
+        "servicio": "Reparación de Centro de Carga Tipo C",
+        "categoria": "Puertos / Carga",
+        "costo_aprox": "$350 - $600 MXN",
+        "tiempo": "40 min",
+        "garantia": "30 días",
+    },
+    {
+        "servicio": "Limpieza por Humedad (Baño Ultrasónico)",
+        "categoria": "Diagnóstico / Software",
+        "costo_aprox": "$400 - $700 MXN",
+        "tiempo": "2 - 4 horas",
+        "garantia": "Sin garantía húmedos",
+    },
+    {
+        "servicio": "Flasheo y Restauración de Sistema Operativo",
+        "categoria": "Diagnóstico / Software",
+        "costo_aprox": "$300 - $500 MXN",
+        "tiempo": "60 min",
+        "garantia": "15 días",
+    },
+]
+
 MODELO_ACTIVO: str = "gemini-3.8-flash"
 
 PROMPT_SISTEMA_OPERATIVO: str = (
@@ -545,7 +590,7 @@ def renderizar_barra_lateral() -> tuple[float, str, int, str]:
         limite_tokens = 1500
 
         if modo_vista == "clasificador":
-            st.subheader("⚙️ Motor de Inferencia IA")
+            st.subheader("⚙️ Parámetros del Asistente")
 
             temperatura = st.slider(
                 "Creatividad de respuesta (Temperature):",
@@ -1091,6 +1136,180 @@ def renderizar_modo_manual() -> None:
             use_container_width=True,
         )
 
+def renderizar_modulos_operativos_inferiores() -> None:
+    st.markdown("---")
+    st.markdown("### 🧰 Módulos Complementarios de Taller")
+    st.caption("Herramientas operativas de apoyo para mostrador y taller físico:")
+
+    tab_tarifas, tab_calculadora, tab_checklist = st.tabs([
+        "💵 Tarifario y Catálogo Rápido",
+        "🧮 Calculadora de Presupuestos",
+        "📋 Checklist de Recepción de Equipos",
+    ])
+
+    with tab_tarifas:
+        col_busqueda, col_filtro = st.columns([2, 1])
+        with col_busqueda:
+            termino_busqueda = st.text_input(
+                "🔍 Buscar repuesto o servicio:",
+                placeholder="Ej: pantalla, batería, carga...",
+                key="filtro_tarifas",
+            )
+        with col_filtro:
+            categoria_filtro = st.selectbox(
+                "Filtrar por tipo:",
+                ["Todos", "Pantallas", "Baterías", "Puertos / Carga", "Diagnóstico / Software"],
+                key="filtro_cat_tarifas",
+            )
+
+        servicios_filtrados = [
+            s for s in CATALOGO_SERVICIOS
+            if (categoria_filtro == "Todos" or s["categoria"] == categoria_filtro)
+            and (not termino_busqueda or termino_busqueda.lower() in s["servicio"].lower())
+        ]
+
+        for s in servicios_filtrados:
+            with st.container(border=True):
+                col_s1, col_s2, col_s3, col_s4 = st.columns([3, 2, 2, 2])
+                with col_s1:
+                    st.markdown(f"**{s['servicio']}**")
+                    st.caption(f"Categoría: {s['categoria']}")
+                with col_s2:
+                    st.markdown(f"💰 `{s['costo_aprox']}`")
+                with col_s3:
+                    st.markdown(f"⏱️ `{s['tiempo']}`")
+                with col_s4:
+                    st.markdown(f"🛡️ `{s['garantia']}`")
+
+    with tab_calculadora:
+        st.caption("Calcula el precio final para el cliente desglosando repuesto, mano de obra e imprevistos:")
+        col_c1, col_c2, col_c3 = st.columns(3)
+        with col_c1:
+            costo_repuesto = st.number_input(
+                "Costo del repuesto ($):",
+                min_value=0.0,
+                value=650.0,
+                step=50.0,
+                key="calc_repuesto",
+            )
+        with col_c2:
+            mano_obra = st.number_input(
+                "Mano de obra técnica ($):",
+                min_value=0.0,
+                value=350.0,
+                step=50.0,
+                key="calc_mano_obra",
+            )
+        with col_c3:
+            margen_garantia = st.number_input(
+                "Fondo de garantía / Imprevistos ($):",
+                min_value=0.0,
+                value=100.0,
+                step=25.0,
+                key="calc_garantia",
+            )
+
+        total_presupuesto = costo_repuesto + mano_obra + margen_garantia
+        st.markdown(f"#### 💵 Total Presupuesto Sugerido: **${total_presupuesto:,.2f} MXN**")
+
+        col_eq, col_conc = st.columns(2)
+        with col_eq:
+            dispositivo_cot = st.text_input("Equipo a cotizar:", value="Samsung Galaxy A54", key="calc_equipo")
+        with col_conc:
+            concepto_cot = st.text_input("Concepto:", value="Cambio de pantalla display original", key="calc_concepto")
+
+        garantia_meses = st.selectbox(
+            "Garantía ofrecida:",
+            ["30 días de garantía", "60 días de garantía", "90 días de garantía"],
+            index=1,
+            key="calc_gar_meses",
+        )
+
+        texto_cotizacion = (
+            f"Hola, te compartimos tu cotización formal para {dispositivo_cot}:\n"
+            f"🔧 Servicio: {concepto_cot}\n"
+            f"💰 Costo total: ${total_presupuesto:,.2f} MXN (incluye repuesto e instalación profesional)\n"
+            f"🛡️ Cobertura: {garantia_meses}\n"
+            "¿Te gustaría apartar tu repuesto y agendar tu recepción hoy?"
+        )
+        st.text_area("Borrador de cotización para WhatsApp:", value=texto_cotizacion, height=100, key="calc_borrador")
+
+        col_tel_cot, col_btn_cot = st.columns([2, 1])
+        with col_tel_cot:
+            tel_cot = st.text_input("Teléfono WhatsApp del cliente (opcional):", placeholder="Ej: +525512345678", key="calc_tel")
+        with col_btn_cot:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            enlace_cot = construir_enlace_whatsapp(tel_cot, texto_cotizacion)
+            st.link_button("📲 Enviar Cotización", url=enlace_cot, type="primary", use_container_width=True)
+
+    with tab_checklist:
+        st.caption("Verifica el estado físico del equipo antes de recibirlo para proteger al taller de reclamos injustificados:")
+        col_ch1, col_ch2, col_ch3 = st.columns(3)
+        with col_ch1:
+            ch_enciende = st.checkbox("Enciende correctamente", value=True, key="ch_enc")
+            ch_pantalla = st.checkbox("Pantalla da imagen nítida", value=True, key="ch_pant")
+            ch_touch = st.checkbox("Touchscreen responde 100%", value=False, key="ch_touch")
+        with col_ch2:
+            ch_camaras = st.checkbox("Cámaras frontal y trasera ok", value=True, key="ch_cam")
+            ch_carga = st.checkbox("Carga y detecta cable", value=True, key="ch_carga")
+            ch_audio = st.checkbox("Bocinas y micrófono ok", value=True, key="ch_audio")
+        with col_ch3:
+            ch_biometria = st.checkbox("Face ID / Huella digital ok", value=True, key="ch_bio")
+            ch_senial = st.checkbox("Lee chip SIM / WiFi ok", value=True, key="ch_sim")
+            ch_humedad = st.checkbox("Sin rastros de humedad/óxido", value=True, key="ch_hum")
+
+        col_cli_ck, col_eq_ck = st.columns(2)
+        with col_cli_ck:
+            cliente_check = st.text_input("Nombre del cliente para constancia:", placeholder="Ej: Carlos Pérez", key="ch_cliente")
+        with col_eq_ck:
+            equipo_check = st.text_input("Equipo recibido (marca y modelo):", placeholder="Ej: iPhone 11 negro 64GB", key="ch_equipo")
+
+        detalles_esteticos = st.text_input(
+            "Detalles estéticos previos (rayones, golpes, tapa estrellada):",
+            placeholder="Ej: Golpe visible en esquina superior derecha, tapa trasera despostillada",
+            key="ch_detalles",
+        )
+
+        estados_fallas = []
+        if not ch_enciende:
+            estados_fallas.append("No enciende al recibir")
+        if not ch_pantalla:
+            estados_fallas.append("Falla de display/pantalla")
+        if not ch_touch:
+            estados_fallas.append("Falla en táctil/touch")
+        if not ch_camaras:
+            estados_fallas.append("Falla en cámaras")
+        if not ch_carga:
+            estados_fallas.append("Falla en puerto de carga")
+        if not ch_audio:
+            estados_fallas.append("Falla de audio/micrófono")
+        if not ch_biometria:
+            estados_fallas.append("Biometría dañada")
+        if not ch_senial:
+            estados_fallas.append("Sin señal / sin WiFi")
+        if not ch_humedad:
+            estados_fallas.append("Presencia de sulfato o humedad")
+
+        resumen_fallas = ", ".join(estados_fallas) if estados_fallas else "Sin fallas secundarias detectadas"
+        nota_recepcion = (
+            f"📋 *COMPROBANTE DE RECEPCIÓN TÉCNICA · TALLERFIX*\n"
+            f"👤 Cliente: {cliente_check if cliente_check else 'Cliente'}\n"
+            f"📱 Dispositivo: {equipo_check if equipo_check else 'Dispositivo'}\n"
+            f"🔍 Estado inicial en mostrador: {resumen_fallas}\n"
+            f"⚠️ Detalles estéticos previos: {detalles_esteticos if detalles_esteticos else 'Ninguno registrado'}\n"
+            "Equipo ingresado formalmente a revisión en taller."
+        )
+
+        st.text_area("Comprobante de recepción para WhatsApp:", value=nota_recepcion, height=110, key="ch_borrador")
+
+        col_tel_ck, col_btn_ck = st.columns([2, 1])
+        with col_tel_ck:
+            tel_check = st.text_input("Teléfono del cliente para enviar comprobante:", placeholder="Ej: +525512345678", key="ch_tel")
+        with col_btn_ck:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            enlace_check = construir_enlace_whatsapp(tel_check, nota_recepcion)
+            st.link_button("📲 Enviar Comprobante", url=enlace_check, type="primary", use_container_width=True)
+
 def renderizar_vista_clasificador(
     temperatura_seleccionada: float,
     nivel_thinking_seleccionado: str,
@@ -1112,6 +1331,8 @@ def renderizar_vista_clasificador(
 
     with tab_manual:
         renderizar_modo_manual()
+
+    renderizar_modulos_operativos_inferiores()
 
 def main() -> None:
     configurar_pagina()
