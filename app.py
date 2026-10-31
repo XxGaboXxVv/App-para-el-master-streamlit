@@ -8,6 +8,7 @@ import urllib.parse
 from datetime import datetime
 from typing import Optional, TypedDict
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
     from google import genai
@@ -183,7 +184,7 @@ MODELO_ACTIVO: str = "gemini-3.8-flash"
 PROMPT_SISTEMA_OPERATIVO: str = (
     "Eres el asistente de operaciones de un taller especializado en reparación de celulares y tablets.\n"
     "Tu función es analizar mensajes reales de clientes recibidos por WhatsApp para clasificar su urgencia, "
-    "identificar la intención técnica y redactar una respuesta profesional.\n\n"
+    "identificar la intención técnica, extraer datos del remitente y redactar una respuesta profesional.\n\n"
     "Estructura obligatoria de respuesta en formato JSON:\n"
     "{\n"
     '  "urgencia": "ALTA / GARANTÍA CRÍTICA" | "MEDIA" | "BAJA",\n'
@@ -192,6 +193,8 @@ PROMPT_SISTEMA_OPERATIVO: str = (
     '  "dispositivo": "Marca y modelo identificado, o No especificado",\n'
     '  "falla_reportada": "Descripción del problema reportado o No identificable",\n'
     '  "accion_recomendada": "Acción que debe tomar el técnico en mostrador",\n'
+    '  "cliente_nombre_detectado": "Nombre propio del cliente si se menciona en el mensaje (ej: Gabriel Durón), o No especificado",\n'
+    '  "cliente_telefono_detectado": "Teléfono de contacto si se menciona en el mensaje, o No registrado",\n'
     '  "borrador_respuesta": "Mensaje profesional para responder al cliente por WhatsApp"\n'
     "}\n\n"
     "Reglas estrictas de clasificación:\n"
@@ -204,6 +207,8 @@ PROMPT_SISTEMA_OPERATIVO: str = (
     "3. Si es una cotización o consulta de reparación en curso: urgencia='MEDIA' y urgencia_color='warning'.\n"
     "4. Si es un saludo vago o pregunta muy amplia pero comprensible: urgencia='BAJA', categoria='Consulta General' "
     "y en borrador_respuesta solicita amablemente marca, modelo y síntoma.\n"
+    "5. Si el cliente indica su nombre (ej: 'me llamo Gabriel Durón', 'soy Carlos', 'le escribe Ana'): "
+    "extrae el nombre con mayúsculas iniciales en 'cliente_nombre_detectado'. Si indica un teléfono, extráelo en 'cliente_telefono_detectado'.\n"
 )
 
 ESTILO_CSS_TALLER: str = """
@@ -327,6 +332,7 @@ def resolver_datos_contacto(
     nombre_limpio = nombre_manual.strip()
     telefono_limpio = telefono_manual.strip()
 
+    # 1. Extracción de encabezados de chat exportados de WhatsApp (ej: [14:20, 20/10/2026] Juan: mensaje)
     if not nombre_limpio or not telefono_limpio:
         patron_encabezado_whatsapp = (
             r"\[?\d{1,2}:\d{2}(?::\d{2})?(?:\s?[apAP]\.?[mM]\.?)?,?\s?\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\]?\s*([^:]+):"
@@ -339,12 +345,49 @@ def resolver_datos_contacto(
             elif not nombre_limpio:
                 nombre_limpio = remitente_detectado
 
+    # 2. Extracción conversacional de nombre en lenguaje natural
+    if not nombre_limpio:
+        patrones_nombre = [
+            r"(?:me llamo|mi nombre es|le escribe|habla|atentamente|atte\.?:?|soy)\s+([A-ZÁÉÍÓÚa-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚa-záéíóúñ]{2,}){0,3})",
+        ]
+        palabras_corte = {
+            "y", "que", "tengo", "queria", "quisiera", "pero", "con", "para", "porque",
+            "mi", "mis", "su", "sus", "el", "la", "los", "las", "un", "una", "unos", "unas",
+            "cel", "celular", "tel", "telefono", "whatsapp", "movil", "contacto",
+            "del", "al", "de", "es", "les", "le", "buenos", "buenas", "dias", "tardes",
+            "nuevo", "nueva", "cliente", "usuario", "dueno", "dueño", "tecnico", "técnico",
+            "por", "favor", "saludos", "hola"
+        }
+        for patron in patrones_nombre:
+            match_nom = re.search(patron, texto_mensaje, re.IGNORECASE)
+            if match_nom:
+                candidato = match_nom.group(1).strip()
+                palabras_candidato = candidato.split()
+                if palabras_candidato and palabras_candidato[0].lower() not in palabras_corte:
+                    palabras_finales = []
+                    for p in palabras_candidato:
+                        if p.lower() in palabras_corte:
+                            break
+                        palabras_finales.append(p)
+                    if palabras_finales:
+                        nombre_limpio = " ".join(palabras_finales).title()
+                        break
+
+    # 3. Extracción de teléfono (contextual con etiqueta o formato numérico amplio)
     if not telefono_limpio:
-        coincidencia_tel = re.search(
-            r"(\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4})", texto_mensaje
-        )
-        if coincidencia_tel:
-            telefono_limpio = coincidencia_tel.group(1).strip()
+        patron_tel_etiqueta = r"(?:tel(?:éfono)?|cel(?:ular)?|whatsapp|móvil|contacto|al)[:\s]+(\+?\d[\d\s\-\(\)]{7,}\d)"
+        match_tel_etq = re.search(patron_tel_etiqueta, texto_mensaje, re.IGNORECASE)
+        if match_tel_etq:
+            telefono_limpio = match_tel_etq.group(1).strip()
+        else:
+            coincidencia_tel = re.search(
+                r"(\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4})", texto_mensaje
+            )
+            if coincidencia_tel:
+                candidato_tel = coincidencia_tel.group(1).strip()
+                solo_digitos = re.sub(r"\D", "", candidato_tel)
+                if len(solo_digitos) >= 8:
+                    telefono_limpio = candidato_tel
 
     nombre_final = nombre_limpio if nombre_limpio else "No especificado"
     telefono_final = telefono_limpio if telefono_limpio else "No registrado"
@@ -445,6 +488,14 @@ def limpiar_y_parsear_json_gemini(texto_crudo: str) -> dict[str, str]:
     if color not in ("error", "warning", "info"):
         color = "error" if "ALTA" in urgencia else "warning" if "MEDIA" in urgencia else "info"
 
+    nombre_detectado = str(datos.get("cliente_nombre_detectado", "No especificado")).strip()
+    if not nombre_detectado or nombre_detectado.lower() in ("no especificado", "ninguno", "null", "none"):
+        nombre_detectado = "No especificado"
+
+    telefono_detectado = str(datos.get("cliente_telefono_detectado", "No registrado")).strip()
+    if not telefono_detectado or telefono_detectado.lower() in ("no registrado", "ninguno", "null", "none"):
+        telefono_detectado = "No registrado"
+
     return {
         "urgencia": urgencia,
         "urgencia_color": color,
@@ -453,6 +504,8 @@ def limpiar_y_parsear_json_gemini(texto_crudo: str) -> dict[str, str]:
         "falla_reportada": falla,
         "accion_recomendada": accion,
         "borrador_respuesta": borrador,
+        "cliente_nombre_detectado": nombre_detectado,
+        "cliente_telefono_detectado": telefono_detectado,
     }
 
 def clasificar_excepcion_operativa(excepcion: Exception) -> DiagnosticoIncidencia:
@@ -771,6 +824,14 @@ def ejecutar_clasificacion_gemini(
 
     datos_json = limpiar_y_parsear_json_gemini(respuesta.text)
 
+    nombre_final = nombre_cliente
+    if nombre_final == "No especificado" and datos_json.get("cliente_nombre_detectado", "No especificado") != "No especificado":
+        nombre_final = datos_json["cliente_nombre_detectado"]
+
+    telefono_final = telefono_cliente
+    if telefono_final == "No registrado" and datos_json.get("cliente_telefono_detectado", "No registrado") != "No registrado":
+        telefono_final = datos_json["cliente_telefono_detectado"]
+
     latencia_total = round(time.perf_counter() - tiempo_inicio, 2)
     sufijo_recuperado = " (Auto-Recuperado Turbo)" if auto_recuperado else ""
 
@@ -783,8 +844,8 @@ def ejecutar_clasificacion_gemini(
         "accion_recomendada": datos_json["accion_recomendada"],
         "borrador_respuesta": datos_json["borrador_respuesta"],
         "latencia_segundos": latencia_total,
-        "cliente_nombre": nombre_cliente,
-        "cliente_telefono": telefono_cliente,
+        "cliente_nombre": nombre_final,
+        "cliente_telefono": telefono_final,
         "nivel_thinking": nivel_thinking,
         "tokens_limite": limite_tokens,
         "metodo": f"🤖 {modelo_utilizado}{sufijo_recuperado}",
@@ -829,7 +890,35 @@ def renderizar_pantalla_login_pin() -> None:
 
             st.caption(f"📍 {datos_taller['direccion']} · Encargado: {datos_taller['encargado']}")
 
+            # Input nativo con auto-foco para ingreso instantáneo con teclado numérico
+            pin_teclado = st.text_input(
+                "⌨️ Ingreso rápido con teclado numérico:",
+                type="password",
+                max_chars=4,
+                key="input_pin_teclado_fisico",
+                placeholder="••••  (Digita 4 números y pulsa Enter)",
+                help="Puedes escribir directamente los 4 dígitos con el teclado numérico de tu computadora (0-9) y pulsar Enter para validar de inmediato.",
+            )
+
+            if pin_teclado and len(pin_teclado) == 4:
+                if pin_teclado == datos_taller["pin"]:
+                    st.session_state["usuario_autenticado"] = True
+                    st.session_state["pin_buffer"] = ""
+                    st.rerun()
+                else:
+                    st.error(f"❌ PIN incorrecto para {taller_elegido}. PIN demo: `{datos_taller['pin']}`")
+
             pin_actual = st.session_state.get("pin_buffer", "")
+            if len(pin_actual) == 4:
+                if pin_actual == datos_taller["pin"]:
+                    st.session_state["usuario_autenticado"] = True
+                    st.session_state["pin_buffer"] = ""
+                    st.rerun()
+                else:
+                    st.error(f"❌ PIN incorrecto para {taller_elegido}. PIN demo: `{datos_taller['pin']}`")
+                    st.session_state["pin_buffer"] = ""
+                    pin_actual = ""
+
             simbolos_pin = " ".join(["●" for _ in pin_actual] + ["○" for _ in range(4 - len(pin_actual))])
 
             st.markdown(f"<div class='pin-display'>{simbolos_pin}</div>", unsafe_allow_html=True)
@@ -888,7 +977,7 @@ def renderizar_pantalla_login_pin() -> None:
             col_borrar, col0, col_entrar = st.columns(3)
             with col_borrar:
                 if st.button("⌫ Borrar", use_container_width=True, key="pin_del"):
-                    st.session_state["pin_buffer"] = ""
+                    st.session_state["pin_buffer"] = st.session_state.get("pin_buffer", "")[:-1]
                     st.rerun()
             with col0:
                 if st.button("0", use_container_width=True, key="pin_0"):
@@ -912,6 +1001,73 @@ def renderizar_pantalla_login_pin() -> None:
                 st.session_state["usuario_autenticado"] = True
                 st.session_state["pin_buffer"] = ""
                 st.rerun()
+
+    # Inyección de script para auto-enfoque y captura de teclado numérico físico
+    components.html(
+        """
+        <script>
+        (function() {
+            try {
+                const pdoc = window.parent.document;
+                
+                // 1. Auto-enfocar el campo de texto del PIN al cargar con auto-submit al 4to dígito
+                setTimeout(() => {
+                    const pinInput = pdoc.querySelector('input[type="password"]');
+                    if (pinInput) {
+                        if (pdoc.activeElement !== pinInput) {
+                            pinInput.focus();
+                        }
+                        if (!pinInput._tallerfix_has_auto_blur) {
+                            pinInput._tallerfix_has_auto_blur = true;
+                            pinInput.addEventListener('input', function() {
+                                if (this.value && this.value.length >= 4) {
+                                    this.blur();
+                                }
+                            });
+                        }
+                    }
+                }, 150);
+
+                // 2. Listener global de teclado numérico (Numpad + Teclas numéricas superiores)
+                if (!pdoc._tallerfix_pin_listener_v4) {
+                    pdoc._tallerfix_pin_listener_v4 = true;
+                    pdoc.addEventListener('keydown', function(event) {
+                        const pinDisplay = pdoc.querySelector('.pin-display');
+                        if (!pinDisplay) return; // Solo activo en la pantalla de PIN
+
+                        const active = pdoc.activeElement;
+                        if (active && active.tagName === 'INPUT' && active.type === 'password') {
+                            return; // El usuario ya está escribiendo en el campo nativo enfocado
+                        }
+
+                        const k = event.key;
+                        if (k >= '0' && k <= '9') {
+                            event.preventDefault();
+                            const btns = Array.from(pdoc.querySelectorAll('button'));
+                            const numBtn = btns.find(b => b.innerText.trim() === k);
+                            if (numBtn) numBtn.click();
+                        } else if (k === 'Backspace' || k === 'Delete') {
+                            event.preventDefault();
+                            const btns = Array.from(pdoc.querySelectorAll('button'));
+                            const delBtn = btns.find(b => b.innerText.includes('Borrar'));
+                            if (delBtn) delBtn.click();
+                        } else if (k === 'Enter') {
+                            event.preventDefault();
+                            const btns = Array.from(pdoc.querySelectorAll('button'));
+                            const enterBtn = btns.find(b => b.innerText.includes('Entrar'));
+                            if (enterBtn) enterBtn.click();
+                        }
+                    });
+                }
+            } catch (e) {
+                console.log("PIN Pad Keyboard Listener:", e);
+            }
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 def renderizar_barra_lateral() -> tuple[float, str, int, str]:
     historial: list[RegistroHistorial] = st.session_state.get("historial_mensajes", [])
@@ -1381,6 +1537,11 @@ def renderizar_modo_ia(
 
         if clave_cache in st.session_state["cache_consultas_ia"]:
             resultado_cached = st.session_state["cache_consultas_ia"][clave_cache]
+            nom_detectado = resultado_cached.get("cliente_nombre", "No especificado")
+            tel_detectado = resultado_cached.get("cliente_telefono", "No registrado")
+            nom_final = nombre_resuelto if nombre_resuelto != "No especificado" else nom_detectado
+            tel_final = telefono_resuelto if telefono_resuelto != "No registrado" else tel_detectado
+
             resultado = {
                 "urgencia": resultado_cached["urgencia"],
                 "urgencia_color": resultado_cached["urgencia_color"],
@@ -1390,8 +1551,8 @@ def renderizar_modo_ia(
                 "accion_recomendada": resultado_cached["accion_recomendada"],
                 "borrador_respuesta": resultado_cached["borrador_respuesta"],
                 "latencia_segundos": 0.05,
-                "cliente_nombre": nombre_resuelto,
-                "cliente_telefono": telefono_resuelto,
+                "cliente_nombre": nom_final,
+                "cliente_telefono": tel_final,
                 "nivel_thinking": nivel_thinking_seleccionado,
                 "tokens_limite": limite_tokens_seleccionado,
                 "metodo": f"{resultado_cached['metodo']} (Caché)",
@@ -1405,8 +1566,8 @@ def renderizar_modo_ia(
                 "timestamp": datetime.now().strftime("%H:%M:%S"),
                 "taller": taller_activo,
                 "metodo": f"{resultado['metodo']}",
-                "cliente_nombre": nombre_resuelto,
-                "cliente_telefono": telefono_resuelto,
+                "cliente_nombre": nom_final,
+                "cliente_telefono": tel_final,
                 "mensaje_original": texto_a_evaluar,
                 "urgencia": resultado["urgencia"],
                 "categoria": resultado["categoria"],
@@ -1419,6 +1580,17 @@ def renderizar_modo_ia(
                 "tokens_limite": resultado["tokens_limite"],
             }
             st.session_state["historial_mensajes"].insert(0, registro_nuevo)
+
+            cambio_inputs = False
+            if not nombre_ingresado and nom_final != "No especificado":
+                st.session_state["input_ia_nombre"] = nom_final
+                cambio_inputs = True
+            if not telefono_ingresado and tel_final != "No registrado":
+                st.session_state["input_ia_telefono"] = tel_final
+                cambio_inputs = True
+
+            if cambio_inputs:
+                st.rerun()
         else:
             try:
                 mensaje_spinner = (
@@ -1447,8 +1619,8 @@ def renderizar_modo_ia(
                         "timestamp": datetime.now().strftime("%H:%M:%S"),
                         "taller": taller_activo,
                         "metodo": resultado["metodo"],
-                        "cliente_nombre": nombre_resuelto,
-                        "cliente_telefono": telefono_resuelto,
+                        "cliente_nombre": resultado["cliente_nombre"],
+                        "cliente_telefono": resultado["cliente_telefono"],
                         "mensaje_original": texto_a_evaluar,
                         "urgencia": resultado["urgencia"],
                         "categoria": resultado["categoria"],
@@ -1461,6 +1633,17 @@ def renderizar_modo_ia(
                         "tokens_limite": resultado["tokens_limite"],
                     }
                     st.session_state["historial_mensajes"].insert(0, registro_nuevo_ia)
+
+                    cambio_inputs = False
+                    if not nombre_ingresado and resultado["cliente_nombre"] != "No especificado":
+                        st.session_state["input_ia_nombre"] = resultado["cliente_nombre"]
+                        cambio_inputs = True
+                    if not telefono_ingresado and resultado["cliente_telefono"] != "No registrado":
+                        st.session_state["input_ia_telefono"] = resultado["cliente_telefono"]
+                        cambio_inputs = True
+
+                    if cambio_inputs:
+                        st.rerun()
 
             except Exception as error_capturado:
                 diagnostico = clasificar_excepcion_operativa(error_capturado)
